@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>공중 드로잉</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0d0d1a;
+      width: 100vw; height: 100vh;
+      overflow: hidden;
+      font-family: sans-serif; color: white;
+    }
+    #container { position: relative; width: 100vw; height: 100vh; }
+    #video { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+    canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+    #ui {
+      position: absolute; top: 20px; left: 50%;
+      transform: translateX(-50%);
+      display: flex; gap: 10px; align-items: center;
+      z-index: 30;
+      background: rgba(0,0,0,0.5);
+      padding: 8px 16px; border-radius: 30px;
+      backdrop-filter: blur(10px);
+    }
+    .color-btn {
+      width: 30px; height: 30px; border-radius: 50%;
+      border: 3px solid transparent; cursor: pointer;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+    .color-btn.active { border-color: white; transform: scale(1.25); }
+    #clear-btn {
+      background: rgba(255,255,255,0.15); border: none; color: white;
+      padding: 5px 14px; border-radius: 20px; cursor: pointer; font-size: 13px;
+    }
+    #clear-btn:hover { background: rgba(255,255,255,0.3); }
+    #status {
+      position: absolute; bottom: 20px; left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.45);
+      padding: 5px 18px; border-radius: 20px; font-size: 13px;
+      z-index: 30; white-space: nowrap; backdrop-filter: blur(6px);
+    }
+  </style>
+</head>
+<body>
+<div id="container">
+  <video id="video" autoplay playsinline></video>
+  <canvas id="drawCanvas"></canvas>
+  <canvas id="sparkCanvas"></canvas>
+  <canvas id="handCanvas"></canvas>
+
+  <div id="ui">
+    <div class="color-btn active" style="background:#ff6b6b" data-color="#ff6b6b"></div>
+    <div class="color-btn" style="background:#ffd93d" data-color="#ffd93d"></div>
+    <div class="color-btn" style="background:#6bcb77" data-color="#6bcb77"></div>
+    <div class="color-btn" style="background:#4d96ff" data-color="#4d96ff"></div>
+    <div class="color-btn" style="background:#c77dff" data-color="#c77dff"></div>
+    <div class="color-btn" style="background:#ffffff" data-color="#ffffff"></div>
+    <button id="clear-btn">지우기</button>
+  </div>
+  <div id="status">카메라 로딩 중...</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+
+<script>
+  const video       = document.getElementById('video');
+  const drawCanvas  = document.getElementById('drawCanvas');
+  const sparkCanvas = document.getElementById('sparkCanvas');
+  const handCanvas  = document.getElementById('handCanvas');
+  const dCtx = drawCanvas.getContext('2d');
+  const sCtx = sparkCanvas.getContext('2d');
+  const hCtx = handCanvas.getContext('2d');
+  const statusEl = document.getElementById('status');
+
+  function resize() {
+    [drawCanvas, sparkCanvas, handCanvas].forEach(c => {
+      c.width  = window.innerWidth;
+      c.height = window.innerHeight;
+    });
+  }
+  resize();
+  window.addEventListener('resize', () => { resize(); redrawAll(); });
+
+  // ── 상태 ────────────────────────────────────────────
+  let currentColor = '#ff6b6b';
+
+  // 스트로크 데이터 모델
+  let strokes = [];           // [{ color, points:[{x,y}] }]
+  let currentStroke = null;   // 현재 그리는 중인 스트로크
+
+  // 드로잉 스무딩
+  let lastX = null, lastY = null;
+  let smoothX = 0, smoothY = 0;
+  const SMOOTH = 0.35;
+
+  // 드래그 상태
+  let selectedIdx = -1;
+  let isDragging  = false;
+  let lastPX = null, lastPY = null;
+  let smoothPX = 0, smoothPY = 0;
+
+  // 스파크
+  let particles = [];
+  let sparkThrottle = 0;
+
+  // ── UI 버튼 ─────────────────────────────────────────
+  document.querySelectorAll('.color-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentColor = btn.dataset.color;
+    });
+  });
+
+  document.getElementById('clear-btn').addEventListener('click', () => {
+    strokes = [];
+    currentStroke = null;
+    dCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+  });
+
+  // ── 네온 선 그리기 (ctx 지정 가능) ────────────────────
+  function drawNeonLine(ctx, x1, y1, x2, y2, color, isSelected = false) {
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    if (isSelected) {
+      ctx.globalAlpha = 0.4;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 20;
+      ctx.shadowColor = '#ffffff';
+      ctx.shadowBlur = 20;
+      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    }
+
+    ctx.globalAlpha = 0.06;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 28;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 30;
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+
+    ctx.globalAlpha = 0.18;
+    ctx.lineWidth = 12;
+    ctx.shadowBlur = 15;
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+
+    ctx.globalAlpha = 0.5;
+    ctx.lineWidth = 4;
+    ctx.shadowBlur = 8;
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+
+    ctx.globalAlpha = 1.0;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.5;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 4;
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+
+    ctx.restore();
+  }
+
+  // ── 스트로크 렌더링 ─────────────────────────────────
+  function drawStrokeToCtx(ctx, stroke, isSelected = false) {
+    const pts = stroke.points;
+    if (pts.length < 2) return;
+    for (let i = 1; i < pts.length; i++) {
+      drawNeonLine(ctx, pts[i-1].x, pts[i-1].y, pts[i].x, pts[i].y, stroke.color, isSelected);
+    }
+  }
+
+  // 메인 캔버스에 그리기 (편의 래퍼)
+  function drawStroke(stroke, isSelected = false) {
+    drawStrokeToCtx(dCtx, stroke, isSelected);
+  }
+
+  // 오프스크린: 선택된 스트로크를 제외한 나머지를 미리 굽기
+  let bgCanvas = null;
+
+  function buildBgCanvas() {
+    const bg = document.createElement('canvas');
+    bg.width  = drawCanvas.width;
+    bg.height = drawCanvas.height;
+    const bgCtx = bg.getContext('2d');
+    for (let i = 0; i < strokes.length; i++) {
+      if (i !== selectedIdx) drawStrokeToCtx(bgCtx, strokes[i], false);
+    }
+    bgCanvas = bg;
+  }
+
+  // 드래그 중: bgCanvas 복사 + 선택 스트로크만 다시 그리기 (빠름)
+  function redrawDrag() {
+    dCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+    if (bgCanvas) dCtx.drawImage(bgCanvas, 0, 0);
+    if (selectedIdx >= 0) drawStroke(strokes[selectedIdx], true);
+  }
+
+  // 전체 재렌더 (드래그 종료, 스트로크 추가 등)
+  function redrawAll() {
+    dCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+    for (let i = 0; i < strokes.length; i++) {
+      drawStroke(strokes[i], i === selectedIdx);
+    }
+    if (currentStroke) drawStroke(currentStroke, false);
+  }
+
+  // ── 스트로크 선택 (가장 가까운 스트로크) ─────────────
+  function findNearestStroke(px, py, threshold = 40) {
+    let minDist = Infinity;
+    let nearestIdx = -1;
+    for (let i = 0; i < strokes.length; i++) {
+      for (const pt of strokes[i].points) {
+        const dist = Math.hypot(pt.x - px, pt.y - py);
+        if (dist < minDist) {
+          minDist = dist;
+          nearestIdx = i;
+        }
+      }
+    }
+    return minDist < threshold ? nearestIdx : -1;
+  }
+
+  function moveStroke(idx, dx, dy) {
+    strokes[idx].points = strokes[idx].points.map(p => ({ x: p.x + dx, y: p.y + dy }));
+  }
+
+  function finishStroke() {
+    if (currentStroke && currentStroke.points.length > 1) {
+      strokes.push(currentStroke);
+    }
+    currentStroke = null;
+    lastX = null; lastY = null;
+  }
+
+  function endDrag() {
+    isDragging  = false;
+    selectedIdx = -1;
+    lastPX = null; lastPY = null;
+    if (isDragging) redrawAll(); // 선택 강조 해제
+  }
+
+  // ── 파티클 ──────────────────────────────────────────
+  function emitSparks(x, y, color) {
+    const count = Math.floor(Math.random() * 5) + 4;
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 4 + 1.5;
+      particles.push({
+        x, y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 1,
+        life: 1.0,
+        decay: Math.random() * 0.04 + 0.025,
+        size: Math.random() * 2.5 + 1,
+        color,
+        trail: []
+      });
+    }
+  }
+
+  function animateSparks() {
+    sCtx.clearRect(0, 0, sparkCanvas.width, sparkCanvas.height);
+    particles = particles.filter(p => p.life > 0);
+    for (const p of particles) {
+      p.trail.push({ x: p.x, y: p.y });
+      if (p.trail.length > 5) p.trail.shift();
+      p.x  += p.vx; p.y  += p.vy;
+      p.vy += 0.15; p.vx *= 0.97; p.vy *= 0.97;
+      p.life -= p.decay;
+
+      if (p.trail.length > 1) {
+        sCtx.save();
+        sCtx.strokeStyle = p.color; sCtx.shadowColor = p.color;
+        sCtx.shadowBlur = 6; sCtx.lineWidth = p.size * 0.6;
+        sCtx.lineCap = 'round'; sCtx.globalAlpha = p.life * 0.4;
+        sCtx.beginPath();
+        sCtx.moveTo(p.trail[0].x, p.trail[0].y);
+        p.trail.forEach(t => sCtx.lineTo(t.x, t.y));
+        sCtx.stroke(); sCtx.restore();
+      }
+
+      sCtx.save();
+      sCtx.globalAlpha = p.life;
+      sCtx.fillStyle = p.color; sCtx.shadowColor = p.color; sCtx.shadowBlur = 10;
+      sCtx.beginPath();
+      sCtx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+      sCtx.fill(); sCtx.restore();
+    }
+    requestAnimationFrame(animateSparks);
+  }
+  animateSparks();
+
+  // ── 손 스켈레톤 ─────────────────────────────────────
+  const CONNECTIONS = [
+    [0,1],[1,2],[2,3],[3,4],
+    [0,5],[5,6],[6,7],[7,8],
+    [0,9],[9,10],[10,11],[11,12],
+    [0,13],[13,14],[14,15],[15,16],
+    [0,17],[17,18],[18,19],[19,20],
+    [5,9],[9,13],[13,17]
+  ];
+
+  function lmPx(lms, i) {
+    return {
+      x: (1 - lms[i].x) * handCanvas.width,
+      y: lms[i].y * handCanvas.height
+    };
+  }
+
+  function drawHandSkeleton(lms, gesture) {
+    hCtx.clearRect(0, 0, handCanvas.width, handCanvas.height);
+
+    const lineColor = gesture === 'pinch'
+      ? 'rgba(255, 220, 80, 0.7)'
+      : 'rgba(180, 220, 255, 0.6)';
+
+    hCtx.strokeStyle = lineColor;
+    hCtx.lineWidth = 1.5; hCtx.lineCap = 'round';
+    for (const [a, b] of CONNECTIONS) {
+      const pa = lmPx(lms, a), pb = lmPx(lms, b);
+      hCtx.beginPath(); hCtx.moveTo(pa.x, pa.y); hCtx.lineTo(pb.x, pb.y); hCtx.stroke();
+    }
+
+    for (let i = 0; i < 21; i++) {
+      const p = lmPx(lms, i);
+      const isTip = [4,8,12,16,20].includes(i);
+      hCtx.beginPath();
+      hCtx.arc(p.x, p.y, isTip ? 5 : 3, 0, Math.PI * 2);
+      hCtx.fillStyle = isTip ? 'rgba(255,255,255,0.9)' : 'rgba(100,180,255,0.7)';
+      hCtx.fill();
+    }
+
+    // 검지 끝 강조
+    const tip = lmPx(lms, 8);
+    hCtx.save();
+    hCtx.shadowColor = gesture === 'pinch' ? '#ffd93d' : currentColor;
+    hCtx.shadowBlur = 14;
+    hCtx.strokeStyle = gesture === 'pinch' ? '#ffd93d' : currentColor;
+    hCtx.lineWidth = 2.5;
+    hCtx.beginPath(); hCtx.arc(tip.x, tip.y, 8, 0, Math.PI * 2); hCtx.stroke();
+    hCtx.restore();
+
+    // 핀치 시 엄지-검지 연결선 강조
+    if (gesture === 'pinch') {
+      const thumb = lmPx(lms, 4);
+      hCtx.save();
+      hCtx.strokeStyle = '#ffd93d';
+      hCtx.shadowColor = '#ffd93d'; hCtx.shadowBlur = 10;
+      hCtx.lineWidth = 2; hCtx.globalAlpha = 0.8;
+      hCtx.beginPath(); hCtx.moveTo(thumb.x, thumb.y); hCtx.lineTo(tip.x, tip.y); hCtx.stroke();
+      hCtx.restore();
+    }
+  }
+
+  // ── 제스처 판별 ─────────────────────────────────────
+  function isIndexOnly(lms) {
+    return lms[8].y < lms[6].y &&
+           lms[12].y > lms[10].y &&
+           lms[16].y > lms[14].y &&
+           lms[20].y > lms[18].y;
+  }
+
+  function isPinch(lms) {
+    const dx = lms[4].x - lms[8].x, dy = lms[4].y - lms[8].y;
+    return Math.sqrt(dx*dx + dy*dy) < 0.07;
+  }
+
+  function getPinchMidpoint(lms, W, H) {
+    return {
+      x: ((1 - lms[4].x) + (1 - lms[8].x)) / 2 * W,
+      y: (lms[4].y + lms[8].y) / 2 * H
+    };
+  }
+
+  function countFingers(lms) {
+    let c = lms[4].x > lms[3].x ? 1 : 0;
+    [[8,6],[12,10],[16,14],[20,18]].forEach(([t,p]) => { if (lms[t].y < lms[p].y) c++; });
+    return c;
+  }
+
+  // ── MediaPipe 결과 처리 ──────────────────────────────
+  function onResults(results) {
+    if (!results.multiHandLandmarks || !results.multiHandLandmarks.length) {
+      hCtx.clearRect(0, 0, handCanvas.width, handCanvas.height);
+      statusEl.textContent = '손을 카메라에 보여주세요';
+      finishStroke();
+      if (isDragging) { isDragging = false; selectedIdx = -1; bgCanvas = null; redrawAll(); }
+      return;
+    }
+
+    const lms = results.multiHandLandmarks[0];
+    const W = drawCanvas.width, H = drawCanvas.height;
+
+    if (isPinch(lms)) {
+      // ── 핀치 모드 ────────────────────────────────────
+      drawHandSkeleton(lms, 'pinch');
+
+      // 그리던 중이면 스트로크 확정
+      if (currentStroke) finishStroke();
+      lastX = null; lastY = null;
+
+      const mid = getPinchMidpoint(lms, W, H);
+      smoothPX += (mid.x - smoothPX) * SMOOTH;
+      smoothPY += (mid.y - smoothPY) * SMOOTH;
+
+      if (!isDragging) {
+        const idx = findNearestStroke(smoothPX, smoothPY, 50);
+        if (idx >= 0) {
+          isDragging  = true;
+          selectedIdx = idx;
+          lastPX = smoothPX;
+          lastPY = smoothPY;
+          buildBgCanvas();   // 배경 한 번만 굽기
+          redrawDrag();
+          statusEl.textContent = '✊ 잡았어요! 드래그해서 이동';
+        } else {
+          statusEl.textContent = '👌 핀치 — 빈 공간';
+        }
+      } else {
+        // 드래그 중: bgCanvas + 선택 스트로크만 그림 (빠름)
+        const dx = smoothPX - lastPX;
+        const dy = smoothPY - lastPY;
+        moveStroke(selectedIdx, dx, dy);
+        lastPX = smoothPX;
+        lastPY = smoothPY;
+        redrawDrag();
+        statusEl.textContent = '✋ 이동 중...';
+      }
+
+    } else if (isIndexOnly(lms)) {
+      // ── 그리기 모드 ──────────────────────────────────
+      drawHandSkeleton(lms, 'draw');
+
+      // 드래그 중이었으면 종료
+      if (isDragging) {
+        isDragging = false; selectedIdx = -1; bgCanvas = null;
+        redrawAll();
+      }
+
+      const rawX = (1 - lms[8].x) * W;
+      const rawY = lms[8].y * H;
+      smoothX += (rawX - smoothX) * SMOOTH;
+      smoothY += (rawY - smoothY) * SMOOTH;
+
+      if (!currentStroke) {
+        currentStroke = { color: currentColor, points: [] };
+      }
+
+      currentStroke.points.push({ x: smoothX, y: smoothY });
+
+      if (lastX !== null) {
+        drawNeonLine(dCtx, lastX, lastY, smoothX, smoothY, currentColor);
+        sparkThrottle++;
+        if (sparkThrottle % 2 === 0) emitSparks(smoothX, smoothY, currentColor);
+      }
+
+      lastX = smoothX; lastY = smoothY;
+      statusEl.textContent = '✏️ 그리는 중...';
+
+    } else {
+      // ── 기타 제스처 ──────────────────────────────────
+      drawHandSkeleton(lms, 'none');
+      finishStroke();
+      if (isDragging) { isDragging = false; selectedIdx = -1; bgCanvas = null; redrawAll(); }
+      statusEl.textContent = `손 감지됨 (손가락 ${countFingers(lms)}개)`;
+    }
+  }
+
+  // ── MediaPipe 초기화 ─────────────────────────────────
+  const hands = new Hands({
+    locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+  });
+  hands.setOptions({
+    maxNumHands: 1,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.7,
+    minTrackingConfidence: 0.7
+  });
+  hands.onResults(onResults);
+
+  const camera = new Camera(video, {
+    onFrame: async () => { await hands.send({ image: video }); },
+    width: 640, height: 480
+  });
+  camera.start()
+    .then(() => { statusEl.textContent = '준비됨 — 검지로 그리고, 핀치로 이동!'; })
+    .catch(err => { statusEl.textContent = '카메라 오류: ' + err.message; });
+</script>
+</body>
+</html>

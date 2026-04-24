@@ -1,0 +1,18 @@
+# Videos
+*.mov
+*.mp4
+*.avi
+
+# Blender/3D source files
+Meshy_AI_복서_biped/
+
+# OS
+.DS_Store
+
+# Dev
+docs/
+neck-guard-extension/
+pose-test.html
+
+# bkit
+.bkit/

@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Boxing Game</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; width: 100vw; height: 100vh; overflow: hidden; font-family: sans-serif; }
+
+    /* 흔들림 래퍼 */
+    #gameArea { position: absolute; inset: 0; }
+
+    @keyframes shake {
+      0%,100% { transform: translate(0,0) rotate(0deg); }
+      15%  { transform: translate(-12px, 6px)  rotate(-1.2deg); }
+      30%  { transform: translate(12px, -6px)  rotate(1.2deg); }
+      50%  { transform: translate(-9px, 9px)   rotate(-0.8deg); }
+      70%  { transform: translate(9px, -4px)   rotate(0.8deg); }
+      85%  { transform: translate(-5px, 4px)   rotate(-0.4deg); }
+    }
+    #gameArea.shaking { animation: shake 0.45s ease; }
+
+    /* 레이어 1: Three.js WebGL (캐릭터) - 뒤에 위치 */
+    #threeCanvas {
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: 100%; z-index: 0;
+      pointer-events: none;
+    }
+
+    /* 레이어 2: 스켈레톤 캔버스 - 캐릭터 앞에 위치 */
+    #bgCanvas {
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: 100%; z-index: 10;
+      pointer-events: none;
+    }
+
+    /* 레이어 2.5: 피격 빨간 플래시 */
+    #hitFlash {
+      position: absolute; inset: 0; z-index: 15;
+      pointer-events: none; opacity: 0;
+    }
+    @keyframes redFlash {
+      0%   { opacity: 1; background: rgba(200,0,0,0.65); }
+      100% { opacity: 0; background: rgba(200,0,0,0); }
+    }
+    #hitFlash.flash { animation: redFlash 0.5s ease forwards; }
+
+    /* 레이어 3: HUD */
+    #hud {
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: 100%; z-index: 20;
+      pointer-events: none;
+    }
+
+    /* HP 바 */
+    .hp-wrap {
+      position: absolute; top: 20px;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    #playerHpWrap { left: 20px; }
+    #enemyHpWrap  { right: 20px; align-items: flex-end; }
+
+    .hp-label {
+      font-size: 12px; color: rgba(255,255,255,0.6);
+      letter-spacing: 1px; text-transform: uppercase;
+    }
+    .hp-bar-bg {
+      width: 200px; height: 18px;
+      background: rgba(255,255,255,0.15); border-radius: 9px; overflow: hidden;
+    }
+    .hp-bar { height: 100%; border-radius: 9px; transition: width 0.2s; }
+    #playerHpBar { background: linear-gradient(90deg, #6bcb77, #4d96ff); width: 100%; }
+    #enemyHpBar  { background: linear-gradient(90deg, #ff6b6b, #ffd93d); width: 100%; }
+
+    /* 상태 메시지 */
+    #statusMsg {
+      position: absolute; bottom: 30px; left: 50%;
+      transform: translateX(-50%);
+      color: white; font-size: 18px; font-weight: 700;
+      background: rgba(0,0,0,0.5); padding: 8px 24px; border-radius: 20px;
+      backdrop-filter: blur(6px); white-space: nowrap;
+    }
+
+    /* 오버레이 (로딩 / 게임오버) */
+    #overlay {
+      position: absolute; inset: 0; z-index: 50;
+      background: rgba(0,0,0,0.75); backdrop-filter: blur(8px);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 16px;
+      color: white;
+    }
+    #overlay.hidden { display: none; }
+    #overlay h1 { font-size: 52px; font-weight: 900; }
+    #overlay p  { font-size: 16px; color: rgba(255,255,255,0.6); }
+    #restartBtn {
+      background: linear-gradient(135deg, #ff6b6b, #c77dff);
+      border: none; color: white; font-size: 16px; font-weight: 700;
+      padding: 12px 36px; border-radius: 30px; cursor: pointer;
+      display: none;
+      pointer-events: all;
+    }
+
+    /* hidden video for mediapipe */
+    #video { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  </style>
+</head>
+<body>
+
+  <video id="video" playsinline></video>
+  <div id="gameArea">
+    <canvas id="bgCanvas"></canvas>
+    <canvas id="threeCanvas"></canvas>
+    <div id="hitFlash"></div>
+  </div>
+
+  <div id="hud">
+    <div class="hp-wrap" id="playerHpWrap">
+      <span class="hp-label">Player</span>
+      <div class="hp-bar-bg"><div class="hp-bar" id="playerHpBar"></div></div>
+    </div>
+    <div class="hp-wrap" id="enemyHpWrap">
+      <span class="hp-label">Enemy</span>
+      <div class="hp-bar-bg"><div class="hp-bar" id="enemyHpBar"></div></div>
+    </div>
+    <div id="statusMsg">로딩 중...</div>
+  </div>
+
+  <div id="overlay">
+    <h1 id="overlayTitle">로딩 중...</h1>
+    <p id="overlayDesc">에셋과 카메라를 준비하고 있습니다</p>
+    <button id="restartBtn" onclick="location.reload()">다시 시작</button>
+  </div>
+
+  <!-- Three.js ES module importmap -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <!-- MediaPipe Pose -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+    // ═══════════════════════════════════════════════════
+    // Three.js 초기화
+    // ═══════════════════════════════════════════════════
+    const threeCanvas = document.getElementById('threeCanvas');
+    const renderer = new THREE.WebGLRenderer({ canvas: threeCanvas, alpha: true, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x000000, 0);
+
+    const scene = new THREE.Scene();
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(0.8, 2.2, 1.0);
+    camera.lookAt(-0.5, 1.8, 0);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 2);
+    dirLight.position.set(2, 4, 3);
+    scene.add(dirLight);
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // ═══════════════════════════════════════════════════
+    // 게임 상태
+    // ═══════════════════════════════════════════════════
+    // 'loading' | 'calibrating' | 'fighting' | 'gameover'
+    let gameState = 'loading';
+
+    let playerHP = 100;
+    let enemyHP  = 100;
+
+    function setStatus(msg) {
+      document.getElementById('statusMsg').textContent = msg;
+    }
+
+    function updateHpBars() {
+      document.getElementById('playerHpBar').style.width = playerHP + '%';
+      document.getElementById('enemyHpBar').style.width  = enemyHP  + '%';
+    }
+
+    function damageEnemy(amount) {
+      if (gameState !== 'fighting') return;
+      enemyHP = Math.max(0, enemyHP - amount);
+      updateHpBars();
+      if (enemyHP === 0) triggerGameOver('win');
+    }
+
+    function damagePlayer(amount) {
+      if (gameState !== 'fighting') return;
+      playerHP = Math.max(0, playerHP - amount);
+      updateHpBars();
+      if (playerHP === 0) triggerGameOver('lose');
+    }
+
+    function triggerGameOver(result) {
+      gameState = 'gameover';
+      if (enemyAttackTimer) clearTimeout(enemyAttackTimer);
+
+      function showOverlay() {
+        document.getElementById('overlayTitle').textContent = result === 'win' ? '🏆 WIN!' : '💀 KO!';
+        document.getElementById('overlayDesc').textContent  =
+          result === 'win' ? '적을 쓰러뜨렸습니다!' : '다음엔 더 잘할 수 있어요.';
+        document.getElementById('restartBtn').style.display = 'block';
+        document.getElementById('overlay').classList.remove('hidden');
+      }
+
+      if (result === 'win') {
+        // 쓰러지는 애니 재생 후 오버레이 표시
+        playAnim('enemy_defeat', showOverlay, true);
+      } else {
+        showOverlay();
+      }
+    }
+
+    // ═══════════════════════════════════════════════════
+    // GLB 모델 로딩
+    // ═══════════════════════════════════════════════════
+    // 메시는 Prep_Straight_Punch 하나만 씬에 추가, 나머지는 클립만 추출
+    const EXTRA_ANIMS = {
+      attack_l:     'assets/left_jab.glb',
+      attack_r:     'assets/right_jab.glb',
+      get_hit_body: 'assets/hit_reaction.glb',
+      get_hit_face: 'assets/face_reaction.glb',
+      enemy_defeat: 'Meshy_AI_복서_biped/Shot_and_Slow_Fall_Backward.glb',
+    };
+
+    let baseMixer = null;
+    const actions = {};
+    let extraLoaded = 0;
+    const loader = new GLTFLoader();
+
+    // 캐릭터 bone 탐색
+    let headBone      = null;
+    let leftHandBone  = null;
+    let rightHandBone = null;
+
+    function findBone(object, test) {
+      if (test(object.name)) return object;
+      for (const child of object.children) {
+        const found = findBone(child, test);
+        if (found) return found;
+      }
+      return null;
+    }
+
+    function findHeadBone(scene) {
+      return findBone(scene, n => {
+        const l = n.toLowerCase();
+        return l.includes('head') && !l.includes('headtop') && !l.includes('head_end') && !l.includes('headend');
+      });
+    }
+
+    loader.load('Meshy_AI_복서_biped/Prep_Straight_Punch.glb', (gltf) => {
+      gltf.scene.scale.setScalar(2.2);
+      gltf.scene.position.set(-1.5, -1.5, 0);
+      gltf.scene.rotation.y = 2.0; // 오른쪽(사용자 방향) 바라보기
+      scene.add(gltf.scene);
+
+      baseMixer = new THREE.AnimationMixer(gltf.scene);
+      actions['idle'] = baseMixer.clipAction(gltf.animations[0]);
+      actions['idle'].setLoop(THREE.LoopRepeat);
+
+      // 전체 bone 이름 출력 (디버그)
+      gltf.scene.traverse(o => { if (o.isBone) console.log('[bone]', o.name); });
+
+      // bone 탐색
+      headBone      = findHeadBone(gltf.scene);
+      leftHandBone  = findBone(gltf.scene, n => /left.*hand|hand.*l\b/i.test(n));
+      rightHandBone = findBone(gltf.scene, n => /right.*hand|hand.*r\b/i.test(n));
+      console.log('Head:', headBone?.name, '| LeftHand:', leftHandBone?.name, '| RightHand:', rightHandBone?.name);
+
+      // 초반 정지 구간을 잘라낼 애니 (초 단위)
+      const ANIM_TRIM = { get_hit_face: 1.8 };
+
+      // 나머지 GLB에서 클립만 꺼내 같은 mixer에 등록
+      Object.entries(EXTRA_ANIMS).forEach(([key, path]) => {
+        loader.load(path, (g) => {
+          let clip = g.animations[0];
+          if (ANIM_TRIM[key]) {
+            const fps = Math.round(clip.tracks[0].times.length / clip.duration);
+            const startFrame = Math.round(ANIM_TRIM[key] * fps);
+            const endFrame   = Math.round(clip.duration * fps);
+            clip = THREE.AnimationUtils.subclip(clip, key, startFrame, endFrame, fps);
+            console.log(`[trim] ${key}: skipped ${ANIM_TRIM[key]}s → ${clip.duration.toFixed(2)}s`);
+          }
+          actions[key] = baseMixer.clipAction(clip);
+          actions[key].setLoop(THREE.LoopOnce, 1);
+          actions[key].clampWhenFinished = true;
+          extraLoaded++;
+          if (extraLoaded === Object.keys(EXTRA_ANIMS).length) onModelsLoaded();
+        }, undefined, (err) => console.error(`anim load error [${key}]:`, err));
+      });
+    }, undefined, (err) => console.error('base GLB load error:', err));
+
+    let currentAction = null;
+
+    // target 제외한 모든 action을 즉시 정지
+    function stopOthers(target) {
+      Object.values(actions).forEach(a => { if (a !== target) a.stop(); });
+    }
+
+    function showIdle() {
+      const idle = actions['idle'];
+      if (!idle) return;
+      stopOthers(idle);
+      idle.reset();
+      idle.setEffectiveWeight(1);
+      idle.setEffectiveTimeScale(1);
+      idle.play();
+      currentAction = idle;
+    }
+
+    function playAnim(key, onComplete, immediate = false) {
+      const action = actions[key];
+      if (!action) { showIdle(); if (onComplete) onComplete(); return; }
+
+      if (immediate) {
+        stopOthers(action);
+        action.reset();
+        action.time = 0.1;    // 정지 구간인 초반 0.1초 스킵
+        action.setEffectiveWeight(1);
+        action.setEffectiveTimeScale(1);
+        action.play();
+      } else {
+        if (currentAction && currentAction !== action) currentAction.fadeOut(0.15);
+        action.reset().fadeIn(0.15).play();
+      }
+      currentAction = action;
+
+      const onFinished = (e) => {
+        if (e.action === action) {
+          baseMixer.removeEventListener('finished', onFinished);
+          currentAction = null;
+          showIdle();
+          if (onComplete) onComplete();
+        }
+      };
+      baseMixer.addEventListener('finished', onFinished);
+    }
+
+    function onModelsLoaded() {
+      console.log('All models loaded');
+      Object.entries(actions).forEach(([k, a]) =>
+        console.log(`[anim] ${k}: ${a.getClip().duration.toFixed(3)}s`)
+      );
+      showIdle();
+      document.getElementById('overlay').classList.add('hidden');
+      startCalibration();
+    }
+
+    // ═══════════════════════════════════════════════════
+    // 웹캠 미러 + MediaPipe Pose
+    // ═══════════════════════════════════════════════════
+    const video    = document.getElementById('video');
+    const bgCanvas = document.getElementById('bgCanvas');
+    const bgCtx    = bgCanvas.getContext('2d');
+
+    function resizeBgCanvas() {
+      bgCanvas.width  = window.innerWidth;
+      bgCanvas.height = window.innerHeight;
+    }
+    resizeBgCanvas();
+    window.addEventListener('resize', resizeBgCanvas);
+
+    // 상반신 연결선 정의 (MediaPipe Pose landmark 인덱스)
+    const SKELETON_CONNECTIONS = [
+      [11, 12], // 어깨
+      [11, 13], [13, 15], // 왼팔
+      [12, 14], [14, 16], // 오른팔
+      [11, 23], [12, 24], // 몸통 측면
+      [23, 24],           // 골반
+    ];
+
+    let hitboxFlashUntil = 0;
+
+    // 캐릭터 head bone의 3D 월드 위치를 카메라로 투영해 히트박스 좌표 계산
+    const _headWorldPos = new THREE.Vector3();
+    function getHitboxes() {
+      const w = bgCanvas.width;
+      const h = bgCanvas.height;
+
+      if (headBone) {
+        headBone.getWorldPosition(_headWorldPos);
+        const proj = _headWorldPos.clone().project(camera);
+        const sx = (proj.x + 1) / 2 * w;
+        const sy = (1 - proj.y) / 2 * h;
+        return {
+          head: { x: sx, y: sy, r: w * 0.055 },
+          body: null,
+        };
+      }
+
+      // fallback: 고정 위치
+      return {
+        head: { x: w * 0.28, y: h * 0.22, r: w * 0.055 },
+        body: null,
+      };
+    }
+
+    function drawSkeleton(lms) {
+      bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+
+      // 히트박스는 랜드마크 없어도 항상 그림
+      if (gameState === 'fighting' || gameState === 'calibrating') {
+        drawHitboxes();
+        drawEnemyFists();
+      }
+
+      if (!lms) return;
+
+      // 연결선
+      bgCtx.strokeStyle = 'rgba(100, 180, 255, 0.7)';
+      bgCtx.lineWidth = 3;
+      for (const [a, b] of SKELETON_CONNECTIONS) {
+        const la = lms[a], lb = lms[b];
+        if (!la || !lb || la.visibility < 0.4 || lb.visibility < 0.4) continue;
+        const pa = lmToScreen(la), pb = lmToScreen(lb);
+        bgCtx.beginPath();
+        bgCtx.moveTo(pa.x, pa.y);
+        bgCtx.lineTo(pb.x, pb.y);
+        bgCtx.stroke();
+      }
+
+      // 관절 점
+      const JOINT_INDICES = [0, 11, 12, 13, 14, 23, 24];
+      for (const i of JOINT_INDICES) {
+        const lm = lms[i];
+        if (!lm || lm.visibility < 0.4) continue;
+        const p = lmToScreen(lm);
+        bgCtx.beginPath();
+        bgCtx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+        bgCtx.fillStyle = 'rgba(100, 200, 255, 0.9)';
+        bgCtx.fill();
+      }
+
+      // 머리 원
+      const nose = lms[0];
+      if (nose && nose.visibility > 0.4) {
+        const p = lmToScreen(nose);
+        const lShoulder = lms[11], rShoulder = lms[12];
+        let headR = 38;
+        if (lShoulder && rShoulder) {
+          const sw = Math.abs(lmToScreen(lShoulder).x - lmToScreen(rShoulder).x);
+          headR = sw * 0.28;
+        }
+        bgCtx.beginPath();
+        bgCtx.arc(p.x, p.y, headR, 0, Math.PI * 2);
+        bgCtx.strokeStyle = 'rgba(100, 200, 255, 0.7)';
+        bgCtx.lineWidth = 2.5;
+        bgCtx.stroke();
+      }
+
+      // 손목: 크고 밝은 원 (주먹 위치 표시)
+      const wristIndices = [15, 16];
+      for (const i of wristIndices) {
+        const lm = lms[i];
+        if (!lm || lm.visibility < 0.4) continue;
+        const p = lmToScreen(lm);
+        const grad = bgCtx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 26);
+        grad.addColorStop(0, 'rgba(255, 220, 60, 0.9)');
+        grad.addColorStop(1, 'rgba(255, 120, 0, 0)');
+        bgCtx.beginPath();
+        bgCtx.arc(p.x, p.y, 26, 0, Math.PI * 2);
+        bgCtx.fillStyle = grad;
+        bgCtx.fill();
+        bgCtx.beginPath();
+        bgCtx.arc(p.x, p.y, 10, 0, Math.PI * 2);
+        bgCtx.fillStyle = 'rgba(255, 230, 80, 1)';
+        bgCtx.fill();
+      }
+
+    }
+
+    function drawHitboxes() {
+      const hb      = getHitboxes();
+      const isFlash = Date.now() < hitboxFlashUntil;
+
+      function drawHitCircle(cx, cy, r) {
+        bgCtx.beginPath();
+        bgCtx.arc(cx, cy, r, 0, Math.PI * 2);
+        bgCtx.fillStyle = isFlash ? 'rgba(255, 0, 0, 0.5)' : 'rgba(255, 0, 0, 0.22)';
+        bgCtx.fill();
+        bgCtx.beginPath();
+        bgCtx.arc(cx, cy, r, 0, Math.PI * 2);
+        bgCtx.strokeStyle = 'rgba(255, 60, 60, 0.95)';
+        bgCtx.lineWidth = isFlash ? 3 : 2;
+        bgCtx.stroke();
+        bgCtx.strokeStyle = 'rgba(255, 60, 60, 0.8)';
+        bgCtx.lineWidth = 1.5;
+        bgCtx.beginPath();
+        bgCtx.moveTo(cx - 10, cy); bgCtx.lineTo(cx + 10, cy);
+        bgCtx.moveTo(cx, cy - 10); bgCtx.lineTo(cx, cy + 10);
+        bgCtx.stroke();
+      }
+
+      drawHitCircle(hb.head.x, hb.head.y, hb.head.r);
+    }
+
+    function drawEnemyFists() {
+      const bones = [
+        { bone: leftHandBone,  label: 'L' },
+        { bone: rightHandBone, label: 'R' },
+      ];
+      const r = bgCanvas.width * 0.03;
+      for (const { bone, label } of bones) {
+        if (!bone) continue;
+        bone.getWorldPosition(_handWorldPos);
+        const proj = _handWorldPos.clone().project(camera);
+        const x = (proj.x + 1) / 2 * bgCanvas.width;
+        const y = (1 - proj.y) / 2 * bgCanvas.height;
+
+        bgCtx.beginPath();
+        bgCtx.arc(x, y, r, 0, Math.PI * 2);
+        bgCtx.fillStyle = 'rgba(60, 140, 255, 0.35)';
+        bgCtx.fill();
+        bgCtx.strokeStyle = 'rgba(60, 180, 255, 0.95)';
+        bgCtx.lineWidth = 2;
+        bgCtx.stroke();
+
+        bgCtx.fillStyle = 'rgba(60, 180, 255, 1)';
+        bgCtx.font = `bold ${r}px sans-serif`;
+        bgCtx.textAlign = 'center';
+        bgCtx.textBaseline = 'middle';
+        bgCtx.fillText(label, x, y);
+      }
+    }
+
+    // 랜드마크 → 화면 좌표 (사용자 = 오른쪽, 미러 반전 + 스케일 조정)
+    function lmToScreen(lm) {
+      return {
+        x: ((1 - lm.x) * 0.75 + 0.35) * bgCanvas.width,
+        y: lm.y * bgCanvas.height,
+      };
+    }
+
+    let poseLandmarks = null;
+
+    const pose = new Pose({
+      locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`
+    });
+    pose.setOptions({
+      modelComplexity: 0,       // 1→0: 경량 모델로 교체
+      smoothLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5,
+    });
+    pose.onResults((results) => {
+      poseLandmarks = results.poseLandmarks || null;
+      drawSkeleton(poseLandmarks);
+      if (poseLandmarks) onPoseFrame(poseLandmarks);
+    });
+
+    let lastPoseTime = 0;
+    const cam = new Camera(video, {
+      onFrame: async () => {
+        const now = performance.now();
+        if (now - lastPoseTime < 33) return; // 최대 30fps로 제한
+        lastPoseTime = now;
+        await pose.send({ image: video });
+      },
+      width: 640, height: 480, // 1280x720 → 640x480 (추론 입력 해상도 절반)
+    });
+    cam.start();
+
+    function onPoseFrame(lms) {
+      const nose = lms[0];
+      if (!nose) return;
+
+      if (gameState === 'calibrating') {
+        calibSamples.push({ x: 1 - nose.x, y: nose.y });
+      }
+
+      if (gameState === 'fighting') {
+        detectPunch(lms);
+        checkEnemyFistHit(lms);
+      }
+    }
+
+    // ═══════════════════════════════════════════════════
+    // 캘리브레이션
+    // ═══════════════════════════════════════════════════
+    let baseX = 0.5;
+    let baseY = 0.5;
+    let calibSamples = [];
+    const CALIB_DURATION = 3000;
+
+    function startCalibration() {
+      gameState = 'calibrating';
+      calibSamples = [];
+      setStatus('정면을 바라보세요... (3초)');
+      setTimeout(finishCalibration, CALIB_DURATION);
+    }
+
+    function finishCalibration() {
+      if (calibSamples.length === 0) { startCalibration(); return; }
+      baseX = calibSamples.reduce((s, p) => s + p.x, 0) / calibSamples.length;
+      baseY = calibSamples.reduce((s, p) => s + p.y, 0) / calibSamples.length;
+      console.log('Calibrated baseX:', baseX.toFixed(3), 'baseY:', baseY.toFixed(3));
+      startFighting();
+    }
+
+    // ═══════════════════════════════════════════════════
+    // 팔 각도 계산
+    // ═══════════════════════════════════════════════════
+    function getElbowAngle(shoulder, elbow, wrist) {
+      if (!shoulder || !elbow || !wrist) return 90;
+      const v1x = shoulder.x - elbow.x, v1y = shoulder.y - elbow.y;
+      const v2x = wrist.x   - elbow.x, v2y = wrist.y   - elbow.y;
+      const dot = v1x*v2x + v1y*v2y;
+      const mag = Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y);
+      if (mag < 0.001) return 90;
+      return Math.acos(Math.min(1, Math.max(-1, dot / mag))) * (180 / Math.PI);
+    }
+
+    const EXTEND_THRESH = 145; // 팔 뻗음 (펀치)
+    const GUARD_THRESH  = 115; // 팔 굽힘 (가드)
+    const HIT_COOLDOWN  = 600; // ms
+
+    // ═══════════════════════════════════════════════════
+    // 가드 감지
+    // ═══════════════════════════════════════════════════
+    function isGuarding(lms) {
+      const la = getElbowAngle(lms[11], lms[13], lms[15]);
+      const ra = getElbowAngle(lms[12], lms[14], lms[16]);
+      return la < GUARD_THRESH && ra < GUARD_THRESH;
+    }
+
+    // ═══════════════════════════════════════════════════
+    // 펀치 감지
+    // ═══════════════════════════════════════════════════
+    const wristState = {
+      left:  { wasInside: false, lastHit: 0 },
+      right: { wasInside: false, lastHit: 0 },
+    };
+
+    function detectPunch(lms) {
+      const hb  = getHitboxes();
+      const now = Date.now();
+
+      const arms = [
+        { shoulder: lms[11], elbow: lms[13], wrist: lms[15], key: 'left'  },
+        { shoulder: lms[12], elbow: lms[14], wrist: lms[16], key: 'right' },
+      ];
+
+      for (const { shoulder, elbow, wrist, key } of arms) {
+        const ws = wristState[key];
+
+        if (!wrist || wrist.visibility < 0.5) {
+          ws.wasInside = false;
+          continue;
+        }
+
+        const angle    = getElbowAngle(shoulder, elbow, wrist);
+        const extended = angle > EXTEND_THRESH;
+        const wp       = lmToScreen(wrist);
+        const dist     = Math.hypot(wp.x - hb.head.x, wp.y - hb.head.y);
+        const isInside = dist <= hb.head.r;
+
+        // 팔 뻗으면서 히트박스 진입 순간 = 펀치
+        const entering = isInside && !ws.wasInside && extended;
+        if (entering && now - ws.lastHit > HIT_COOLDOWN) {
+          onPlayerHit(key);
+          ws.lastHit = now;
+        }
+
+        ws.wasInside = isInside && extended;
+      }
+    }
+
+    // 피격 모션 재생 중 재진입 방지 플래그
+    let isHitAnimPlaying = false;
+
+    function onPlayerHit(hand) {
+      if (isHitAnimPlaying) return;
+      isHitAnimPlaying = true;
+
+      wristState.left.wasInside  = false;
+      wristState.right.wasInside = false;
+
+      damageEnemy(10);
+
+      // damageEnemy 안에서 triggerGameOver가 호출됐을 수 있으므로 체크
+      if (gameState !== 'fighting') { isHitAnimPlaying = false; return; }
+
+      // 왼손(잽) → get_hit_body, 오른손(스트레이트) → get_hit_face
+      const hitKey = hand === 'left' ? 'get_hit_body' : 'get_hit_face';
+      playAnim(hitKey, () => { isHitAnimPlaying = false; }, true);
+      hitboxFlashUntil = Date.now() + 200;
+
+      setTimeout(() => { isHitAnimPlaying = false; }, 1500);
+    }
+
+    // ═══════════════════════════════════════════════════
+    // 적 AI
+    // ═══════════════════════════════════════════════════
+    // 적 AI
+    // ═══════════════════════════════════════════════════
+    const ATTACK_MIN_MS      = 2000;
+    const ATTACK_MAX_MS      = 4000;
+    const ENEMY_HIT_R_3D     = 0.55;  // 3D 월드 공간 판정 반경 (world units)
+    const ENEMY_FACE_DEPTH   = 0.6;   // 카메라에서 얼굴까지 추정 거리 (world units)
+    const ENEMY_HIT_COOLDOWN = 800;
+    let enemyAttackTimer  = null;
+    let activeAttackHand  = null;
+    let lastEnemyHit      = 0;
+
+    const _handWorldPos  = new THREE.Vector3();
+    const _faceWorldPos  = new THREE.Vector3();
+    const _faceRayDir    = new THREE.Vector3();
+    const _faceNDC       = new THREE.Vector3();
+
+    // MediaPipe 코 좌표 → 3D 월드 위치 (카메라 레이 투영)
+    function calcFaceWorldPos(nose) {
+      // NDC 변환 (x 미러)
+      _faceNDC.set((1 - nose.x) * 2 - 1, 1 - nose.y * 2, -1).unproject(camera);
+      _faceRayDir.copy(_faceNDC).sub(camera.position).normalize();
+      _faceWorldPos.copy(camera.position).addScaledVector(_faceRayDir, ENEMY_FACE_DEPTH);
+    }
+
+    // 매 포즈 프레임 호출 — 3D 공간에서 손 bone ↔ 얼굴 거리 비교
+    function checkEnemyFistHit(lms) {
+      if (!activeAttackHand || !lms) return;
+      const now = Date.now();
+      if (now - lastEnemyHit < ENEMY_HIT_COOLDOWN) return;
+
+      const nose = lms[0];
+      if (!nose || nose.visibility < 0.4) return;
+      calcFaceWorldPos(nose);
+
+      for (const bone of [leftHandBone, rightHandBone]) {
+        if (!bone) continue;
+        bone.getWorldPosition(_handWorldPos);
+
+        if (_handWorldPos.distanceTo(_faceWorldPos) > ENEMY_HIT_R_3D) continue;
+
+        // 맞음
+        lastEnemyHit = now;
+        activeAttackHand = null;
+        const blocked = isGuarding(lms);
+        if (blocked) {
+          setStatus('🛡️ 가드!');
+          setTimeout(() => { if (gameState === 'fighting') setStatus(''); }, 600);
+        } else {
+          setStatus('');
+          damagePlayer(15);
+          flashScreen();
+        }
+        return;
+      }
+    }
+
+    function scheduleNextAttack() {
+      if (gameState !== 'fighting') return;
+      const delay = ATTACK_MIN_MS + Math.random() * (ATTACK_MAX_MS - ATTACK_MIN_MS);
+      enemyAttackTimer = setTimeout(enemyAttack, delay);
+    }
+
+    function enemyAttack() {
+      if (gameState !== 'fighting') return;
+
+      const isLeft  = Math.random() < 0.5;
+      const animKey = isLeft ? 'attack_l' : 'attack_r';
+      activeAttackHand = isLeft ? 'left' : 'right';
+
+      playAnim(animKey, () => {
+        activeAttackHand = null;
+        scheduleNextAttack();
+      });
+      setStatus('⚠️ 피해!');
+      setTimeout(() => { if (gameState === 'fighting') setStatus(''); }, 800);
+    }
+
+    function flashScreen() {
+      // 빨간 플래시 오버레이
+      const flash = document.getElementById('hitFlash');
+      flash.classList.remove('flash');
+      void flash.offsetWidth; // reflow로 애니메이션 재시작
+      flash.classList.add('flash');
+      flash.addEventListener('animationend', () => flash.classList.remove('flash'), { once: true });
+
+      // 화면 흔들림
+      const gameArea = document.getElementById('gameArea');
+      gameArea.classList.remove('shaking');
+      void gameArea.offsetWidth;
+      gameArea.classList.add('shaking');
+      gameArea.addEventListener('animationend', () => gameArea.classList.remove('shaking'), { once: true });
+    }
+
+    // ═══════════════════════════════════════════════════
+    // 게임 시작
+    // ═══════════════════════════════════════════════════
+    function startFighting() {
+      gameState = 'fighting';
+      setStatus('');
+      scheduleNextAttack();
+    }
+
+    // ═══════════════════════════════════════════════════
+    // Three.js 렌더 루프
+    // ═══════════════════════════════════════════════════
+    const clock = new THREE.Clock();
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+      if (baseMixer) baseMixer.update(delta);
+      renderer.render(scene, camera);
+    }
+    animate();
+
+  </script>
+</body>
+</html>

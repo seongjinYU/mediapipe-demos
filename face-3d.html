@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Face 3D Parallax</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0f;
+      width: 100vw; height: 100vh;
+      overflow: hidden;
+    }
+    #canvas { display: block; width: 100vw; height: 100vh; }
+    #video {
+      position: absolute; width: 1px; height: 1px;
+      opacity: 0; pointer-events: none;
+    }
+    #loading {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      color: rgba(255,255,255,0.7);
+      font-family: sans-serif; font-size: 16px;
+      letter-spacing: 2px;
+    }
+  </style>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <video id="video" autoplay playsinline></video>
+  <div id="loading">LOADING...</div>
+
+  <script type="module">
+    import * as THREE from 'three';
+
+    // ── Renderer / Scene / Camera ──────────────────────────────────────────────
+    const canvas = document.getElementById('canvas');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.shadowMap.enabled = true;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0a0a0f);
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(0, 0, 6);
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // ── Grid Room (6 sides) ────────────────────────────────────────────────────
+    function buildGridRoom(size = 10) {
+      const divisions = 10;
+
+      // Floor
+      const floor = new THREE.GridHelper(size, divisions, 0xffffff, 0xffffff);
+      [].concat(floor.material).forEach(m => { m.transparent = true; m.opacity = 0.18; });
+      floor.position.y = -size / 2;
+      scene.add(floor);
+
+      // Ceiling
+      const ceil = new THREE.GridHelper(size, divisions, 0xffffff, 0xffffff);
+      [].concat(ceil.material).forEach(m => { m.transparent = true; m.opacity = 0.18; });
+      ceil.position.y = size / 2;
+      scene.add(ceil);
+
+      // Back wall
+      const back = new THREE.GridHelper(size, divisions, 0xffffff, 0xffffff);
+      [].concat(back.material).forEach(m => { m.transparent = true; m.opacity = 0.18; });
+      back.rotation.x = Math.PI / 2;
+      back.position.z = -size / 2;
+      scene.add(back);
+
+      // Front wall
+      const front = new THREE.GridHelper(size, divisions, 0xffffff, 0xffffff);
+      [].concat(front.material).forEach(m => { m.transparent = true; m.opacity = 0.18; });
+      front.rotation.x = Math.PI / 2;
+      front.position.z = size / 2;
+      scene.add(front);
+
+      // Left wall
+      const left = new THREE.GridHelper(size, divisions, 0xffffff, 0xffffff);
+      [].concat(left.material).forEach(m => { m.transparent = true; m.opacity = 0.18; });
+      left.rotation.z = Math.PI / 2;
+      left.position.x = -size / 2;
+      scene.add(left);
+
+      // Right wall
+      const right = new THREE.GridHelper(size, divisions, 0xffffff, 0xffffff);
+      [].concat(right.material).forEach(m => { m.transparent = true; m.opacity = 0.18; });
+      right.rotation.z = Math.PI / 2;
+      right.position.x = size / 2;
+      scene.add(right);
+    }
+
+    buildGridRoom();
+
+    // ── Lighting ───────────────────────────────────────────────────────────────
+    const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+    scene.add(ambient);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    dirLight.position.set(0, 5, 3);
+    dirLight.castShadow = true;
+    scene.add(dirLight);
+
+    // ── Object ─────────────────────────────────────────────────────────────────
+    const geometry = new THREE.TorusKnotGeometry(1, 0.35, 128, 32);
+    const material = new THREE.MeshStandardMaterial({
+      color: 0x88aaff,
+      metalness: 0.6,
+      roughness: 0.2,
+    });
+    const model = new THREE.Mesh(geometry, material);
+    model.castShadow = true;
+    model.receiveShadow = true;
+    scene.add(model);
+
+    document.getElementById('loading').style.display = 'none';
+
+    // ── Head Tracking State ────────────────────────────────────────────────────
+    const headPos = { x: 0, y: 0, z: 0 };
+    const headTarget = { x: 0, y: 0, z: 0 };
+
+    function lerp(a, b, t) { return a + (b - a) * t; }
+
+    // ── FaceMesh Setup ─────────────────────────────────────────────────────────
+    const faceMesh = new FaceMesh({
+      locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`
+    });
+
+    faceMesh.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: false,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+
+    faceMesh.onResults((results) => {
+      if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) return;
+      const nose = results.multiFaceLandmarks[0][4];
+      headTarget.x = -(nose.x - 0.5) * 2;
+      headTarget.y = -(nose.y - 0.5) * 2;
+      headTarget.z = (nose.z || 0) * 2;
+    });
+
+    // ── Camera (MediaPipe) Setup ───────────────────────────────────────────────
+    const video = document.getElementById('video');
+    const cam = new Camera(video, {
+      onFrame: async () => { await faceMesh.send({ image: video }); },
+      width: 640, height: 480
+    });
+    cam.start().catch(() => {
+      loadingEl.textContent = 'Camera access denied';
+    });
+
+    // ── Render Loop ────────────────────────────────────────────────────────────
+    const CAM_BASE_Z = 6;
+    const MODEL_Y_OFFSET = 0.3;
+    const CAM_X_RANGE = 1.5;
+    const CAM_Y_RANGE = 0.8;
+    const CAM_Z_RANGE = 0.5;
+    const MODEL_ROT_X = 0.14;
+    const MODEL_ROT_Y = 0.26;
+    const SMOOTH = 0.08;
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      headPos.x = lerp(headPos.x, headTarget.x, SMOOTH);
+      headPos.y = lerp(headPos.y, headTarget.y, SMOOTH);
+      headPos.z = lerp(headPos.z, headTarget.z, SMOOTH);
+
+      camera.position.x = headPos.x * CAM_X_RANGE;
+      camera.position.y = headPos.y * CAM_Y_RANGE;
+      camera.position.z = CAM_BASE_Z + headPos.z * CAM_Z_RANGE;
+      camera.lookAt(0, MODEL_Y_OFFSET, 0);
+
+      if (model) {
+        model.rotation.y = lerp(model.rotation.y, -headPos.x * MODEL_ROT_Y, SMOOTH);
+        model.rotation.x = lerp(model.rotation.x, headPos.y * MODEL_ROT_X, SMOOTH);
+      }
+
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>

@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>손가락 총 게임</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #060612; width: 100vw; height: 100vh; overflow: hidden; font-family: sans-serif; }
+    canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+    #video { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+    #hud {
+      position: absolute; top: 20px; left: 0; right: 0;
+      display: flex; justify-content: space-between; align-items: flex-start;
+      padding: 0 28px; z-index: 30; pointer-events: none;
+    }
+    .hud-box {
+      background: rgba(0,0,0,0.5);
+      border: 1px solid rgba(255,255,255,0.1);
+      padding: 8px 20px; border-radius: 14px;
+      backdrop-filter: blur(8px); color: white;
+      text-align: center;
+    }
+    .hud-label { font-size: 11px; color: rgba(255,255,255,0.45); letter-spacing: 2px; text-transform: uppercase; }
+    .hud-value { font-size: 28px; font-weight: 700; line-height: 1.2; }
+    #score-val { color: #ffd93d; }
+    #lives-val { color: #ff6b6b; }
+
+    #status {
+      position: absolute; bottom: 20px; left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.5); color: white;
+      padding: 5px 18px; border-radius: 20px; font-size: 13px;
+      z-index: 30; white-space: nowrap; backdrop-filter: blur(6px);
+    }
+
+    #overlay {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 50; background: rgba(6,6,18,0.85);
+      backdrop-filter: blur(6px); color: white;
+    }
+    #overlay h1 { font-size: 48px; font-weight: 800; margin-bottom: 12px; }
+    #overlay p  { font-size: 16px; color: rgba(255,255,255,0.6); margin-bottom: 32px; line-height: 1.8; text-align: center; }
+    #start-btn {
+      background: linear-gradient(135deg, #ff6b6b, #c77dff);
+      border: none; color: white; font-size: 18px; font-weight: 700;
+      padding: 14px 40px; border-radius: 30px; cursor: pointer;
+      box-shadow: 0 0 30px rgba(199,125,255,0.4);
+    }
+    #start-btn:hover { opacity: 0.85; }
+    #overlay.hidden { display: none; }
+
+    #gameover {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 50; background: rgba(6,6,18,0.88);
+      backdrop-filter: blur(8px); color: white;
+    }
+    #gameover h1 { font-size: 52px; font-weight: 800; color: #ff6b6b; margin-bottom: 8px; }
+    #gameover .final { font-size: 22px; margin-bottom: 30px; color: #ffd93d; }
+    #gameover.hidden { display: none; }
+  </style>
+</head>
+<body>
+<video id="video" autoplay playsinline></video>
+
+<!-- 레이어 -->
+<canvas id="bgCanvas"></canvas>    <!-- 별 배경 -->
+<canvas id="gameCanvas"></canvas>  <!-- 공, 총알 -->
+<canvas id="fxCanvas"></canvas>    <!-- 폭발 파티클 -->
+<canvas id="handCanvas"></canvas>  <!-- 손 스켈레톤 -->
+
+<div id="hud">
+  <div class="hud-box">
+    <div class="hud-label">Score</div>
+    <div class="hud-value" id="score-val">0</div>
+  </div>
+  <div class="hud-box">
+    <div class="hud-label">Lives</div>
+    <div class="hud-value" id="lives-val">❤️❤️❤️</div>
+  </div>
+</div>
+<div id="status">카메라 로딩 중...</div>
+
+<div id="overlay">
+  <h1>🔫 손가락 총</h1>
+  <p>
+    ☝️ <strong>검지만 펴서</strong> 조준<br>
+    👌 <strong>핀치 (엄지+검지 붙이기)</strong>로 발사!<br>
+    공이 바닥에 닿으면 목숨이 줄어요
+  </p>
+  <button id="start-btn">시작하기</button>
+</div>
+
+<div id="gameover" class="hidden">
+  <h1>GAME OVER</h1>
+  <div class="final" id="final-score"></div>
+  <button id="start-btn2" style="background:linear-gradient(135deg,#ff6b6b,#c77dff);border:none;color:white;font-size:18px;font-weight:700;padding:14px 40px;border-radius:30px;cursor:pointer;">다시하기</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script>
+const video      = document.getElementById('video');
+const bgCanvas   = document.getElementById('bgCanvas');
+const gameCanvas = document.getElementById('gameCanvas');
+const fxCanvas   = document.getElementById('fxCanvas');
+const handCanvas = document.getElementById('handCanvas');
+const bgCtx  = bgCanvas.getContext('2d');
+const gCtx   = gameCanvas.getContext('2d');
+const fxCtx  = fxCanvas.getContext('2d');
+const hCtx   = handCanvas.getContext('2d');
+const statusEl   = document.getElementById('status');
+const scoreEl    = document.getElementById('score-val');
+const livesEl    = document.getElementById('lives-val');
+
+const W = () => window.innerWidth;
+const H = () => window.innerHeight;
+
+// ── 별 배경 ───────────────────────────────────────────
+const stars = Array.from({length: 120}, () => ({
+  x: Math.random(), y: Math.random(),
+  r: Math.random() * 1.5 + 0.3,
+  a: Math.random() * 0.7 + 0.3
+}));
+
+function resizeAll() {
+  [bgCanvas, gameCanvas, fxCanvas, handCanvas].forEach(c => {
+    c.width = W(); c.height = H();
+  });
+  drawStarBg();
+}
+resizeAll();
+window.addEventListener('resize', resizeAll);
+
+function drawStarBg() {
+  bgCtx.clearRect(0, 0, W(), H());
+  for (const s of stars) {
+    bgCtx.beginPath();
+    bgCtx.arc(s.x * W(), s.y * H(), s.r, 0, Math.PI * 2);
+    bgCtx.fillStyle = `rgba(255,255,255,${s.a})`;
+    bgCtx.fill();
+  }
+}
+
+// ── 게임 상태 ─────────────────────────────────────────
+let score = 0, lives = 3;
+let balls = [], bullets = [], particles = [];
+let ballTimer = 0, ballInterval = 90; // 프레임 단위
+let gameRunning = false;
+let frameCount = 0;
+
+const BALL_COLORS = ['#ff6b6b','#ffd93d','#6bcb77','#4d96ff','#c77dff','#ff9f43','#ff6348'];
+
+function spawnBall() {
+  const r = Math.random() * 30 + 20;
+  const color = BALL_COLORS[Math.floor(Math.random() * BALL_COLORS.length)];
+  balls.push({
+    x: r + Math.random() * (W() - r * 2),
+    y: -r,
+    r,
+    vy: Math.random() * 1.5 + 1,
+    vx: (Math.random() - 0.5) * 1,
+    color,
+    alive: true,
+    glow: 0
+  });
+}
+
+// ── 총알 ─────────────────────────────────────────────
+function fireBullet(tipX, tipY, dirX, dirY) {
+  const spd = 18;
+  bullets.push({ x: tipX, y: tipY, vx: dirX * spd, vy: dirY * spd, alive: true });
+}
+
+// ── 폭발 파티클 ───────────────────────────────────────
+function explode(x, y, color, r) {
+  const count = Math.floor(r * 1.5) + 8;
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const spd   = Math.random() * (r * 0.15) + 2;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * spd,
+      vy: Math.sin(angle) * spd - 2,
+      life: 1.0,
+      decay: Math.random() * 0.025 + 0.015,
+      size: Math.random() * (r * 0.15) + 2,
+      color
+    });
+  }
+  // 충격파 링
+  particles.push({ type: 'ring', x, y, r: 1, maxR: r * 2.5, life: 1.0, decay: 0.06, color });
+}
+
+// ── 메인 게임 루프 ────────────────────────────────────
+function gameLoop() {
+  if (!gameRunning) return;
+  frameCount++;
+
+  // 공 스폰
+  ballTimer++;
+  if (ballTimer >= ballInterval) {
+    spawnBall();
+    ballTimer = 0;
+    // 시간이 지날수록 빠르게
+    ballInterval = Math.max(40, 90 - Math.floor(score / 5));
+  }
+
+  // 공 업데이트
+  gCtx.clearRect(0, 0, W(), H());
+  for (const b of balls) {
+    if (!b.alive) continue;
+    b.x += b.vx; b.y += b.vy;
+    b.vx *= 0.999;
+
+    // 바닥 닿으면 목숨 감소
+    if (b.y - b.r > H()) {
+      b.alive = false;
+      lives--;
+      updateLives();
+      if (lives <= 0) { endGame(); return; }
+      continue;
+    }
+
+    // 벽 반사
+    if (b.x - b.r < 0)    { b.x = b.r;      b.vx *= -1; }
+    if (b.x + b.r > W())  { b.x = W() - b.r; b.vx *= -1; }
+
+    drawBall(b);
+  }
+
+  // 총알 업데이트
+  for (const bullet of bullets) {
+    if (!bullet.alive) continue;
+    bullet.x += bullet.vx;
+    bullet.y += bullet.vy;
+
+    // 화면 밖
+    if (bullet.x < 0 || bullet.x > W() || bullet.y < 0 || bullet.y > H()) {
+      bullet.alive = false; continue;
+    }
+
+    // 공 충돌
+    for (const b of balls) {
+      if (!b.alive) continue;
+      if (Math.hypot(bullet.x - b.x, bullet.y - b.y) < b.r + 5) {
+        b.alive = false;
+        bullet.alive = false;
+        explode(b.x, b.y, b.color, b.r);
+        score++;
+        scoreEl.textContent = score;
+        break;
+      }
+    }
+
+    drawBullet(bullet);
+  }
+
+  // 파티클 업데이트
+  fxCtx.clearRect(0, 0, W(), H());
+  particles = particles.filter(p => p.life > 0);
+  for (const p of particles) {
+    if (p.type === 'ring') {
+      p.r += (p.maxR - p.r) * 0.2;
+      p.life -= p.decay;
+      fxCtx.save();
+      fxCtx.globalAlpha = p.life * 0.6;
+      fxCtx.strokeStyle = p.color;
+      fxCtx.shadowColor = p.color;
+      fxCtx.shadowBlur = 12;
+      fxCtx.lineWidth = 2;
+      fxCtx.beginPath();
+      fxCtx.arc(p.x, p.y, Math.max(0.1, p.r), 0, Math.PI * 2);
+      fxCtx.stroke();
+      fxCtx.restore();
+      continue;
+    }
+    p.x += p.vx; p.y += p.vy;
+    p.vy += 0.12; p.vx *= 0.97; p.vy *= 0.97;
+    p.life -= p.decay;
+
+    fxCtx.save();
+    fxCtx.globalAlpha = p.life;
+    fxCtx.fillStyle = p.color;
+    fxCtx.shadowColor = p.color;
+    fxCtx.shadowBlur = 8;
+    fxCtx.beginPath();
+    fxCtx.arc(p.x, p.y, Math.max(0.1, p.size * p.life), 0, Math.PI * 2);
+    fxCtx.fill();
+    fxCtx.restore();
+  }
+
+  // 정리
+  balls   = balls.filter(b => b.alive);
+  bullets = bullets.filter(b => b.alive);
+
+  requestAnimationFrame(gameLoop);
+}
+
+function drawBall(b) {
+  gCtx.save();
+  // 외부 글로우
+  gCtx.shadowColor = b.color;
+  gCtx.shadowBlur = 20;
+  gCtx.globalAlpha = 0.3;
+  gCtx.fillStyle = b.color;
+  gCtx.beginPath();
+  gCtx.arc(b.x, b.y, Math.max(0.1, b.r + 6), 0, Math.PI * 2);
+  gCtx.fill();
+
+  // 본체
+  gCtx.globalAlpha = 1;
+  gCtx.shadowBlur = 10;
+  const r0 = Math.max(0.1, b.r * 0.1);
+  const grad = gCtx.createRadialGradient(b.x - b.r*0.3, b.y - b.r*0.3, r0, b.x, b.y, Math.max(r0 + 0.1, b.r));
+  grad.addColorStop(0, '#ffffff');
+  grad.addColorStop(0.3, b.color);
+  grad.addColorStop(1, b.color + '88');
+  gCtx.fillStyle = grad;
+  gCtx.beginPath();
+  gCtx.arc(b.x, b.y, Math.max(0.1, b.r), 0, Math.PI * 2);
+  gCtx.fill();
+  gCtx.restore();
+}
+
+function drawBullet(bullet) {
+  gCtx.save();
+  gCtx.fillStyle = '#ffffff';
+  gCtx.shadowColor = '#ffd93d';
+  gCtx.shadowBlur = 16;
+  gCtx.beginPath();
+  gCtx.arc(bullet.x, bullet.y, 5, 0, Math.PI * 2);
+  gCtx.fill();
+  gCtx.restore();
+}
+
+// ── 점수/생명 UI ──────────────────────────────────────
+function updateLives() {
+  livesEl.textContent = '❤️'.repeat(Math.max(0, lives));
+}
+
+function endGame() {
+  gameRunning = false;
+  document.getElementById('final-score').textContent = `최종 점수: ${score}점`;
+  document.getElementById('gameover').classList.remove('hidden');
+}
+
+function startGame() {
+  score = 0; lives = 3;
+  balls = []; bullets = []; particles = [];
+  ballTimer = 0; ballInterval = 90; frameCount = 0;
+  scoreEl.textContent = '0';
+  updateLives();
+  document.getElementById('overlay').classList.add('hidden');
+  document.getElementById('gameover').classList.add('hidden');
+  gameRunning = true;
+  gameLoop();
+}
+
+document.getElementById('start-btn').addEventListener('click', startGame);
+document.getElementById('start-btn2').addEventListener('click', startGame);
+
+// ── 손 스켈레톤 ───────────────────────────────────────
+const CONNECTIONS = [
+  [0,1],[1,2],[2,3],[3,4],
+  [0,5],[5,6],[6,7],[7,8],
+  [0,9],[9,10],[10,11],[11,12],
+  [0,13],[13,14],[14,15],[15,16],
+  [0,17],[17,18],[18,19],[19,20],
+  [5,9],[9,13],[13,17]
+];
+
+function lmPx(lms, i) {
+  return { x: (1 - lms[i].x) * W(), y: lms[i].y * H() };
+}
+
+function drawHandSkeleton(lms, gesture) {
+  hCtx.clearRect(0, 0, W(), H());
+  const color = gesture === 'gun'   ? 'rgba(255, 200, 50, 0.75)'
+              : gesture === 'shoot' ? 'rgba(255, 100, 80, 0.9)'
+              : 'rgba(180, 220, 255, 0.5)';
+
+  hCtx.strokeStyle = color;
+  hCtx.lineWidth = 1.5; hCtx.lineCap = 'round';
+  for (const [a, b] of CONNECTIONS) {
+    const pa = lmPx(lms, a), pb = lmPx(lms, b);
+    hCtx.beginPath(); hCtx.moveTo(pa.x, pa.y); hCtx.lineTo(pb.x, pb.y); hCtx.stroke();
+  }
+  for (let i = 0; i < 21; i++) {
+    const p = lmPx(lms, i);
+    const isTip = [4,8,12,16,20].includes(i);
+    hCtx.beginPath(); hCtx.arc(p.x, p.y, isTip ? 5 : 3, 0, Math.PI * 2);
+    hCtx.fillStyle = isTip ? 'rgba(255,255,255,0.9)' : 'rgba(120,180,255,0.7)';
+    hCtx.fill();
+  }
+
+  // 총 모양일 때: 조준선
+  if (gesture === 'gun' || gesture === 'shoot') {
+    const base = lmPx(lms, 5);
+    const tip  = lmPx(lms, 8);
+    const dx = tip.x - base.x, dy = tip.y - base.y;
+    const len = Math.hypot(dx, dy);
+    const nx = dx / len, ny = dy / len;
+
+    // 조준선 (검지 연장선)
+    hCtx.save();
+    hCtx.strokeStyle = gesture === 'shoot' ? '#ff6b6b' : '#ffd93d';
+    hCtx.shadowColor  = gesture === 'shoot' ? '#ff6b6b' : '#ffd93d';
+    hCtx.shadowBlur = 14;
+    hCtx.lineWidth = 1.5;
+    hCtx.setLineDash([6, 8]);
+    hCtx.globalAlpha = 0.8;
+    hCtx.beginPath();
+    hCtx.moveTo(tip.x, tip.y);
+    hCtx.lineTo(tip.x + nx * 400, tip.y + ny * 400);
+    hCtx.stroke();
+    hCtx.restore();
+
+    // 조준점
+    hCtx.save();
+    hCtx.shadowColor = '#ffffff'; hCtx.shadowBlur = 20;
+    hCtx.strokeStyle = '#ffffff'; hCtx.lineWidth = 1.5;
+    const cx = tip.x + nx * 400, cy = tip.y + ny * 400;
+    hCtx.beginPath(); hCtx.arc(cx, cy, 10, 0, Math.PI * 2); hCtx.stroke();
+    hCtx.beginPath(); hCtx.moveTo(cx-16,cy); hCtx.lineTo(cx+16,cy); hCtx.stroke();
+    hCtx.beginPath(); hCtx.moveTo(cx,cy-16); hCtx.lineTo(cx,cy+16); hCtx.stroke();
+    hCtx.restore();
+  }
+}
+
+// ── 제스처 판별 ───────────────────────────────────────
+// 검지만 펴기 (조준)
+function isIndexOnly(lms) {
+  return lms[8].y < lms[6].y &&
+         lms[12].y > lms[10].y &&
+         lms[16].y > lms[14].y &&
+         lms[20].y > lms[18].y;
+}
+
+// 핀치 (발사)
+function isPinch(lms) {
+  const dx = lms[4].x - lms[8].x, dy = lms[4].y - lms[8].y;
+  return Math.sqrt(dx*dx + dy*dy) < 0.07;
+}
+
+// ── 발사 상태 ─────────────────────────────────────────
+let prevPinch = false;
+let shotCooldown = 0;
+
+function onResults(results) {
+  if (!results.multiHandLandmarks || !results.multiHandLandmarks.length) {
+    hCtx.clearRect(0, 0, W(), H());
+    statusEl.textContent = gameRunning ? '손을 보여주세요' : '';
+    prevPinch = false;
+    return;
+  }
+
+  const lms = results.multiHandLandmarks[0];
+  if (shotCooldown > 0) shotCooldown--;
+
+  const aiming = isIndexOnly(lms);
+  const pinch  = isPinch(lms);
+
+  // 핀치 시작 순간에 발사 (이전 프레임 비핀치 → 현재 핀치)
+  if (pinch && !prevPinch && shotCooldown === 0 && gameRunning) {
+    const base = lmPx(lms, 5);
+    const tip  = lmPx(lms, 8);
+    const dx = tip.x - base.x, dy = tip.y - base.y;
+    const len = Math.hypot(dx, dy);
+    fireBullet(tip.x, tip.y, dx / len, dy / len);
+    shotCooldown = 15;
+  }
+  prevPinch = pinch;
+
+  const gesture = pinch ? 'shoot' : aiming ? 'gun' : 'none';
+  drawHandSkeleton(lms, gesture);
+
+  if (!gameRunning) return;
+
+  if (pinch)        statusEl.textContent = '💥 발사!';
+  else if (aiming)  statusEl.textContent = '🔫 조준 중... 핀치로 발사!';
+  else              statusEl.textContent = '☝️ 검지만 펴서 조준하세요';
+}
+
+// ── MediaPipe ─────────────────────────────────────────
+const hands = new Hands({
+  locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+});
+hands.setOptions({
+  maxNumHands: 1,
+  modelComplexity: 1,
+  minDetectionConfidence: 0.7,
+  minTrackingConfidence: 0.7
+});
+hands.onResults(onResults);
+
+const camera = new Camera(video, {
+  onFrame: async () => { await hands.send({ image: video }); },
+  width: 640, height: 480
+});
+camera.start()
+  .then(() => { statusEl.textContent = '준비됨 — 시작하기를 눌러주세요'; })
+  .catch(err => { statusEl.textContent = '카메라 오류: ' + err.message; });
+</script>
+</body>
+</html>

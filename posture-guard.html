@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>✅ Neck Guard</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;}
+    body{background:#0b0f1a;width:100vw;height:100vh;overflow:hidden;font-family:-apple-system,sans-serif;color:white;display:flex;}
+
+    /* ── 카메라 영역 ── */
+    #camArea{position:relative;flex:1;height:100vh;overflow:hidden;}
+    #camVideo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);}
+    #camCanvas{position:absolute;inset:0;width:100%;height:100%;}
+    #camStatus{
+      position:absolute;bottom:18px;left:50%;transform:translateX(-50%);
+      background:rgba(0,0,0,0.6);padding:6px 18px;border-radius:20px;
+      font-size:13px;backdrop-filter:blur(8px);white-space:nowrap;
+      border-left:3px solid #555;z-index:10;transition:border-color 0.3s;
+    }
+    #pipBanner{
+      position:absolute;top:14px;left:14px;right:14px;
+      background:rgba(77,150,255,0.15);border:1px solid rgba(77,150,255,0.3);
+      border-radius:12px;padding:9px 14px;font-size:12px;color:rgba(255,255,255,0.7);
+      display:none;z-index:10;backdrop-filter:blur(8px);
+    }
+    #pipBanner b{color:#4d96ff;}
+
+    /* ── 우측 패널 ── */
+    #panel{
+      width:300px;min-width:300px;height:100vh;
+      background:#0f1420;border-left:1px solid rgba(255,255,255,0.06);
+      display:flex;flex-direction:column;padding:20px 18px;gap:12px;
+      overflow-y:auto;
+    }
+    #logo{font-size:18px;font-weight:800;}
+    #logo span{color:#4d96ff;}
+    .stitle{font-size:10px;font-weight:600;color:rgba(255,255,255,0.3);letter-spacing:2px;text-transform:uppercase;}
+    .divider{height:1px;background:rgba(255,255,255,0.06);flex-shrink:0;}
+    .fgap{flex:1;}
+
+    /* ── 메트릭 카드 ── */
+    .mc{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);border-radius:14px;padding:12px 14px;transition:border-color .4s,background .4s;}
+    .mc.bad{border-color:rgba(255,80,80,.5);background:rgba(255,60,60,.08);animation:cardPulse 1.5s ease-in-out infinite;}
+    .mc.good{border-color:rgba(77,203,119,.35);background:rgba(77,203,119,.05);}
+    @keyframes cardPulse{0%,100%{box-shadow:0 0 0 0 rgba(255,80,80,0)}50%{box-shadow:0 0 0 5px rgba(255,80,80,.12)}}
+    .mh{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+    .mn{font-size:12px;font-weight:600;color:rgba(255,255,255,.75);}
+    .mb{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;transition:all .3s;}
+    .mb.ok{background:rgba(77,203,119,.2);color:#6bcb77;}
+    .mb.bad{background:rgba(255,80,80,.2);color:#ff6b6b;}
+    .mb.none{background:rgba(255,255,255,.07);color:rgba(255,255,255,.3);}
+    .mbb{height:4px;background:rgba(255,255,255,.07);border-radius:3px;overflow:hidden;}
+    .mbar{height:100%;border-radius:3px;transition:width .4s,background .4s;}
+    .mv{font-size:11px;color:rgba(255,255,255,.3);margin-top:5px;}
+
+    /* ── 타이머 링 ── */
+    #badTimer{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:12px 14px;text-align:center;}
+    #btr{width:64px;height:64px;margin:5px auto 3px;position:relative;}
+    #btr svg{transform:rotate(-90deg);}
+    #btc{stroke-dasharray:170;stroke-dashoffset:170;transition:stroke-dashoffset .5s,stroke .5s;}
+    #btv{font-size:20px;font-weight:800;}
+
+    /* ── 버튼 ── */
+    .btn{border:none;color:white;font-size:13px;font-weight:700;padding:11px;border-radius:11px;cursor:pointer;width:100%;transition:opacity .18s,transform .1s;display:flex;align-items:center;justify-content:center;gap:6px;}
+    .btn:hover{opacity:.85;}.btn:active{transform:scale(.97);}
+    .btn-blue{background:linear-gradient(135deg,#4d96ff,#7b5ea7);}
+    .btn-green{background:linear-gradient(135deg,#6bcb77,#4d96ff);}
+    .btn-ghost{background:rgba(255,255,255,.08);color:rgba(255,255,255,.65);}
+    .btn.done{background:linear-gradient(135deg,#6bcb77,#4d96ff);}
+
+    /* ── 인터벌 ── */
+    #ivrow{display:flex;gap:5px;}
+    .ivb{flex:1;padding:7px 4px;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:rgba(255,255,255,.5);font-size:12px;font-weight:600;cursor:pointer;transition:all .2s;text-align:center;}
+    .ivb.active{background:rgba(77,150,255,.25);border-color:#4d96ff;color:#4d96ff;}
+    #resbar{display:flex;gap:7px;align-items:center;font-size:11px;color:rgba(255,255,255,.3);}
+    .rdot{width:7px;height:7px;border-radius:50%;background:#6bcb77;flex-shrink:0;}
+
+    /* ════════════════════════════════════
+       마법사 오버레이
+    ════════════════════════════════════ */
+    #wizard{
+      position:fixed;inset:0;z-index:80;
+      background:rgba(6,8,18,.82);backdrop-filter:blur(6px);
+      display:flex;align-items:center;justify-content:center;
+    }
+    #wizard.hidden{display:none;}
+
+    .wcard{
+      background:#111827;border:1px solid rgba(255,255,255,.1);
+      border-radius:24px;padding:36px 40px;width:460px;max-width:90vw;
+      display:flex;flex-direction:column;align-items:center;gap:20px;
+      box-shadow:0 24px 60px rgba(0,0,0,.6);
+    }
+
+    /* 진행 점 */
+    #wdots{display:flex;gap:8px;}
+    .wdot{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.15);transition:background .3s,transform .3s;}
+    .wdot.active{background:#4d96ff;transform:scale(1.3);}
+    .wdot.done{background:#6bcb77;}
+
+    .wicon{font-size:54px;line-height:1;}
+    .wtitle{font-size:22px;font-weight:800;text-align:center;}
+    .wdesc{font-size:14px;color:rgba(255,255,255,.5);text-align:center;line-height:1.8;max-width:340px;}
+
+    /* 캡처 버튼 (카운트다운 포함) */
+    #wCaptureBtn{
+      background:linear-gradient(135deg,#4d96ff,#c77dff);
+      border:none;color:white;font-size:15px;font-weight:700;
+      padding:14px 40px;border-radius:30px;cursor:pointer;
+      transition:opacity .2s,transform .1s;min-width:200px;text-align:center;
+      position:relative;overflow:hidden;
+    }
+    #wCaptureBtn:hover{opacity:.88;}
+    #wCaptureBtn:disabled{opacity:.35;cursor:not-allowed;}
+    #wCaptureFill{
+      position:absolute;left:0;top:0;height:100%;width:0%;
+      background:rgba(255,255,255,.2);transition:width 3s linear;border-radius:30px;
+    }
+    #wCaptureTxt{position:relative;z-index:1;}
+
+    #wResult{
+      background:rgba(107,203,119,.12);border:1px solid rgba(107,203,119,.3);
+      border-radius:12px;padding:10px 20px;font-size:13px;color:#6bcb77;
+      text-align:center;display:none;width:100%;
+    }
+    #wNextBtn{
+      background:linear-gradient(135deg,#6bcb77,#4d96ff);
+      border:none;color:white;font-size:15px;font-weight:700;
+      padding:13px 44px;border-radius:30px;cursor:pointer;
+      transition:opacity .2s;display:none;
+    }
+    #wNextBtn:hover{opacity:.88;}
+
+    /* 요약 화면 범위 시각화 */
+    #wSummary{width:100%;display:none;flex-direction:column;gap:10px;}
+    .srow{display:flex;flex-direction:column;gap:4px;}
+    .srow-label{font-size:11px;color:rgba(255,255,255,.4);letter-spacing:1px;text-transform:uppercase;}
+    .srow-bar-wrap{height:8px;background:rgba(255,255,255,.07);border-radius:4px;position:relative;}
+    .srow-bar{height:100%;border-radius:4px;background:linear-gradient(90deg,#4d96ff,#6bcb77);position:absolute;}
+    .srow-val{font-size:12px;color:rgba(255,255,255,.5);}
+
+    /* ── 경고 오버레이 ── */
+    #alertOverlay{position:fixed;inset:0;z-index:100;background:rgba(160,10,10,0);pointer-events:none;display:flex;align-items:center;justify-content:center;transition:background .8s;}
+    #alertOverlay.active{background:rgba(160,10,10,.38);pointer-events:auto;}
+    #alertBox{background:rgba(12,8,8,.92);border:2px solid rgba(255,80,80,.6);border-radius:20px;padding:28px 36px;text-align:center;backdrop-filter:blur(14px);opacity:0;transform:scale(.9);transition:opacity .4s,transform .4s;max-width:320px;}
+    #alertOverlay.active #alertBox{opacity:1;transform:scale(1);}
+    #alertBox h2{font-size:21px;font-weight:900;color:#ff6b6b;margin-bottom:8px;}
+    #alertBox p{font-size:13px;color:rgba(255,255,255,.6);line-height:1.7;margin-bottom:16px;}
+    #alertBox button{background:#ff6b6b;border:none;color:white;font-size:13px;font-weight:700;padding:10px 24px;border-radius:30px;cursor:pointer;}
+    #calibStatus{font-size:11px;color:rgba(255,255,255,.3);text-align:center;line-height:1.6;}
+  </style>
+</head>
+<body>
+
+<!-- ── 카메라 영역 ── -->
+<div id="camArea">
+  <video id="camVideo" autoplay playsinline muted></video>
+  <canvas id="camCanvas"></canvas>
+  <div id="camStatus">카메라 로딩 중...</div>
+  <div id="pipBanner">📺 <b>PiP 활성화됨</b> — 브라우저 최소화 후에도 모니터링 계속됩니다</div>
+</div>
+
+<!-- ── 우측 패널 ── -->
+<div id="panel">
+  <div id="logo">Neck<span>Guard</span></div>
+  <div class="divider"></div>
+  <div class="stitle">실시간 자세 분석</div>
+
+  <div class="mc" id="cNeck">
+    <div class="mh"><div class="mn">🐢 거북목</div><div class="mb none" id="bNeck">대기중</div></div>
+    <div class="mbb"><div class="mbar" id="barNeck" style="width:0%;background:#555"></div></div>
+    <div class="mv" id="vNeck">설정 후 측정</div>
+  </div>
+  <div class="mc" id="cTilt">
+    <div class="mh"><div class="mn">↗ 고개 기울기</div><div class="mb none" id="bTilt">대기중</div></div>
+    <div class="mbb"><div class="mbar" id="barTilt" style="width:0%;background:#555"></div></div>
+    <div class="mv" id="vTilt">설정 후 측정</div>
+  </div>
+  <div class="mc" id="cShoulder">
+    <div class="mh"><div class="mn">⚖️ 어깨 비대칭</div><div class="mb none" id="bShoulder">대기중</div></div>
+    <div class="mbb"><div class="mbar" id="barShoulder" style="width:0%;background:#555"></div></div>
+    <div class="mv" id="vShoulder">설정 후 측정</div>
+  </div>
+
+  <div class="divider"></div>
+  <div class="stitle">불량 자세 지속 시간</div>
+  <div id="badTimer">
+    <div style="font-size:10px;color:rgba(255,255,255,.3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">10초 초과 시 경고</div>
+    <div id="btr">
+      <svg width="64" height="64" viewBox="0 0 64 64">
+        <circle cx="32" cy="32" r="27" fill="none" stroke="rgba(255,255,255,.07)" stroke-width="5"/>
+        <circle id="btc" cx="32" cy="32" r="27" fill="none" stroke="#4d96ff" stroke-width="5" stroke-linecap="round"/>
+      </svg>
+      <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center"><span id="btv">0s</span></div>
+    </div>
+    <div id="bts" style="font-size:11px;color:rgba(255,255,255,.3)">자세가 좋아요! 👍</div>
+  </div>
+
+  <div class="divider"></div>
+  <div class="stitle">분석 주기 (배터리 절약)</div>
+  <div id="ivrow">
+    <div class="ivb" data-ms="500">0.5초</div>
+    <div class="ivb active" data-ms="1500">1.5초</div>
+    <div class="ivb" data-ms="3000">3초</div>
+    <div class="ivb" data-ms="5000">5초</div>
+  </div>
+  <div id="resbar"><div class="rdot" id="rdot"></div><span id="rlabel">절약 모드 — 1.5초마다 분석</span></div>
+
+  <div class="divider"></div>
+  <div class="stitle">백그라운드 실행</div>
+  <button class="btn btn-blue" id="btnPiP">📺 Picture-in-Picture 시작</button>
+  <button class="btn btn-ghost" id="btnNotif">🔔 시스템 알림 허용</button>
+
+  <div class="fgap"></div>
+  <div class="divider"></div>
+  <div class="stitle">설정</div>
+  <button class="btn btn-ghost" id="btnRecalib">⚙️ 환경 측정 다시 하기</button>
+  <div id="calibStatus">설정 마법사를 완료하면 모니터링이 시작됩니다.</div>
+</div>
+
+<!-- ════════════════════════════════════
+     마법사 오버레이
+════════════════════════════════════ -->
+<div id="wizard">
+  <div class="wcard">
+    <div id="wdots">
+      <div class="wdot active" id="dot0"></div>
+      <div class="wdot" id="dot1"></div>
+      <div class="wdot" id="dot2"></div>
+      <div class="wdot" id="dot3"></div>
+    </div>
+
+    <div id="wicon" class="wicon">👋</div>
+    <div id="wtitle" class="wtitle">안녕하세요!</div>
+    <div id="wdesc" class="wdesc">
+      Neck Guard는 내 작업 환경에 맞는 기준값을 먼저 측정합니다.<br>
+      듀얼 모니터 사용자도 정확하게 감지할 수 있어요.
+    </div>
+
+    <button id="wCaptureBtn" style="display:none">
+      <div id="wCaptureFill"></div>
+      <span id="wCaptureTxt">📸 지금 자세로 측정하기</span>
+    </button>
+
+    <div id="wResult"></div>
+
+    <div id="wSummary"></div>
+
+    <button id="wNextBtn">다음 →</button>
+  </div>
+</div>
+
+<!-- ── 경고 오버레이 ── -->
+<div id="alertOverlay">
+  <div id="alertBox">
+    <h2>⚠️ 자세가 무너졌어요!</h2>
+    <p id="alertMsg">불량 자세가 10초 이상 지속됐어요.<br>잠깐 스트레칭 해주세요! 💪</p>
+    <button id="btnDismiss">괜찮아요, 고쳤습니다</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+<script>
+// ── 요소 ─────────────────────────────────────────────
+const camVideo  = document.getElementById('camVideo');
+const camCanvas = document.getElementById('camCanvas');
+const ctx       = camCanvas.getContext('2d');
+
+function resize() {
+  camCanvas.width  = camVideo.offsetWidth  || window.innerWidth - 300;
+  camCanvas.height = camVideo.offsetHeight || window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── 스켈레톤 ─────────────────────────────────────────
+const CONNS = [
+  [0,1],[1,2],[2,3],[3,7],[0,4],[4,5],[5,6],[6,8],[9,10],
+  [11,12],[11,13],[13,15],[12,14],[14,16],
+  [11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28],
+];
+function lmPx(lm){ return {x:(1-lm.x)*camCanvas.width, y:lm.y*camCanvas.height}; }
+function drawSkeleton(lms, color) {
+  ctx.save();
+  for (const [a,b] of CONNS) {
+    const vis=Math.min(lms[a].visibility??1, lms[b].visibility??1);
+    if(vis<0.3) continue;
+    const pa=lmPx(lms[a]), pb=lmPx(lms[b]);
+    ctx.strokeStyle=color; ctx.lineWidth=2.5; ctx.shadowColor=color; ctx.shadowBlur=7;
+    ctx.globalAlpha=Math.min(vis,.9);
+    ctx.beginPath(); ctx.moveTo(pa.x,pa.y); ctx.lineTo(pb.x,pb.y); ctx.stroke();
+  }
+  for(let i=0;i<lms.length;i++){
+    if(![0,7,8,11,12,23,24].includes(i)) continue;
+    const lm=lms[i], vis=lm.visibility??1;
+    if(vis<0.3) continue;
+    const p=lmPx(lm), r=[11,12,23,24].includes(i)?8:5;
+    ctx.fillStyle=color; ctx.shadowColor=color; ctx.shadowBlur=12; ctx.globalAlpha=Math.min(vis,1);
+    ctx.beginPath(); ctx.arc(p.x,p.y,r,0,Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ── 메트릭 계산 ──────────────────────────────────────
+function getMetrics(lms) {
+  const nose=lms[0], lEar=lms[7], rEar=lms[8], lSho=lms[11], rSho=lms[12];
+  const earVis=Math.min(lEar.visibility??1, rEar.visibility??1);
+  const shoVis=Math.min(lSho.visibility??1, rSho.visibility??1);
+  if(earVis<0.35||shoVis<0.35) return null;
+
+  const earMidY=(lEar.y+rEar.y)/2, shoMidY=(lSho.y+rSho.y)/2;
+  const shoWidth=Math.abs(lSho.x-rSho.x);
+  const neckRatio = shoWidth>0.01 ? (shoMidY-earMidY)/shoWidth : 0;
+
+  const headTilt     = Math.atan2(rEar.y-lEar.y, rEar.x-lEar.x)*180/Math.PI;
+  const shoulderTilt = Math.atan2(rSho.y-lSho.y, rSho.x-lSho.x)*180/Math.PI;
+
+  // 좌우 시선 (코가 귀 중점에서 얼마나 치우쳤는지)
+  const earMidX=(lEar.x+rEar.x)/2, earSpan=Math.abs(rEar.x-lEar.x);
+  const noseRelX = earSpan>0.01 ? (nose.x-earMidX)/earSpan : 0;
+
+  return { neckRatio, headTilt, shoulderTilt, noseRelX };
+}
+
+// ════════════════════════════════════════════════
+// 마법사
+// ════════════════════════════════════════════════
+const STEPS = [
+  {
+    icon:'👋', title:'안녕하세요!',
+    desc:'Neck Guard는 내 작업 환경에 맞는 기준값을 먼저 측정합니다.\n듀얼 모니터 사용자도 정확하게 감지할 수 있어요.',
+    capture: false, next:'다음 →'
+  },
+  {
+    icon:'📐', title:'정면 — 바른 자세',
+    desc:'평소 메인 모니터를 볼 때처럼\n바른 자세로 앉아주세요.\n준비되면 버튼을 눌러주세요.',
+    capture: true,  key:'center', next:'다음 →', label:'정면 기준 저장됨 ✅'
+  },
+  {
+    icon:'👈', title:'왼쪽 끝 — 시선 범위',
+    desc:'왼쪽 모니터나 가장 왼쪽으로\n자연스럽게 고개를 돌려주세요.\n(모니터가 하나면 살짝만 돌려도 됩니다)',
+    capture: true,  key:'left',   next:'다음 →', label:'왼쪽 범위 저장됨 ✅'
+  },
+  {
+    icon:'👉', title:'오른쪽 끝 — 시선 범위',
+    desc:'오른쪽 모니터나 가장 오른쪽으로\n자연스럽게 고개를 돌려주세요.',
+    capture: true,  key:'right',  next:'모니터링 시작 🚀', label:'오른쪽 범위 저장됨 ✅'
+  },
+];
+
+let wStep    = 0;
+let wData    = {};  // { center, left, right }
+let liveLms  = null;
+let capturing = false;
+
+function setDots(step) {
+  for(let i=0;i<4;i++){
+    const d=document.getElementById('dot'+i);
+    d.className='wdot'+(i===step?' active':i<step?' done':'');
+  }
+}
+
+function loadStep(i) {
+  wStep=i;
+  const s=STEPS[i];
+  setDots(i);
+  document.getElementById('wicon').textContent=s.icon;
+  document.getElementById('wtitle').textContent=s.title;
+  document.getElementById('wdesc').style.whiteSpace='pre-line';
+  document.getElementById('wdesc').textContent=s.desc;
+  document.getElementById('wResult').style.display='none';
+  document.getElementById('wSummary').style.display='none';
+  document.getElementById('wNextBtn').style.display= s.capture?'none':'block';
+  document.getElementById('wNextBtn').textContent=s.next||'다음 →';
+
+  const cb=document.getElementById('wCaptureBtn');
+  if(s.capture){
+    cb.style.display='block'; cb.disabled=false;
+    document.getElementById('wCaptureTxt').textContent='📸 지금 자세로 측정하기';
+    document.getElementById('wCaptureFill').style.transition='none';
+    document.getElementById('wCaptureFill').style.width='0%';
+  } else {
+    cb.style.display='none';
+  }
+}
+
+function startCapture() {
+  if(capturing||!liveLms) return;
+  const s=STEPS[wStep];
+  if(!s.capture) return;
+
+  capturing=true;
+  const cb=document.getElementById('wCaptureBtn');
+  const fill=document.getElementById('wCaptureFill');
+  const txt=document.getElementById('wCaptureTxt');
+
+  // 카운트다운 3초
+  let cnt=3;
+  txt.textContent=`측정 중... ${cnt}`;
+  fill.style.transition='none'; fill.style.width='0%';
+  requestAnimationFrame(()=>{
+    fill.style.transition='width 3s linear';
+    fill.style.width='100%';
+  });
+
+  const timer=setInterval(()=>{
+    cnt--;
+    if(cnt>0){ txt.textContent=`측정 중... ${cnt}`; }
+    else {
+      clearInterval(timer);
+      // 캡처
+      const m=getMetrics(liveLms);
+      if(m){
+        wData[s.key]=m;
+        const res=document.getElementById('wResult');
+        res.textContent=s.label; res.style.display='block';
+        document.getElementById('wNextBtn').style.display='block';
+        document.getElementById('wNextBtn').textContent=s.next;
+        txt.textContent='✅ 측정 완료!';
+        cb.disabled=true;
+      } else {
+        txt.textContent='감지 실패 — 다시 시도';
+        fill.style.width='0%';
+      }
+      capturing=false;
+    }
+  },1000);
+}
+
+document.getElementById('wCaptureBtn').addEventListener('click', startCapture);
+
+document.getElementById('wNextBtn').addEventListener('click', ()=>{
+  const next=wStep+1;
+  if(next < STEPS.length){
+    loadStep(next);
+  } else {
+    finishWizard();
+  }
+});
+
+function finishWizard() {
+  computeThresholds();
+  showSummary();
+}
+
+// ── 개인화 임계값 계산 ────────────────────────────────
+let thresholds = null;
+
+function computeThresholds() {
+  const c=wData.center, l=wData.left, r=wData.right;
+
+  // 고개 기울기(roll) 허용 범위: 좌우 측정값 중 최대 + 여유 5°, 최소 8°
+  const leftRoll  = l ? Math.abs(l.headTilt - c.headTilt) : 0;
+  const rightRoll = r ? Math.abs(r.headTilt - c.headTilt) : 0;
+  const maxRoll   = Math.max(leftRoll, rightRoll, 8) + 5;
+
+  // 좌우 시선 범위 (noseRelX)
+  const leftYaw   = l ? l.noseRelX : c.noseRelX - 0.3;
+  const rightYaw  = r ? r.noseRelX : c.noseRelX + 0.3;
+  const yawMin    = Math.min(leftYaw, rightYaw) - 0.05;
+  const yawMax    = Math.max(leftYaw, rightYaw) + 0.05;
+
+  thresholds = {
+    refNeckRatio:    c.neckRatio,
+    refHeadTilt:     c.headTilt,
+    refShoulderTilt: c.shoulderTilt,
+    maxRoll,         // 개인화된 고개 기울기 허용 범위
+    yawMin, yawMax,  // 좌우 시선 허용 범위
+    neckDropLimit:   0.07,   // 거북목: 기준 대비 7% 감소 (더 민감하게)
+    maxShoulderTilt: 15,     // 어깨: 15° 이상일 때만 경고 (덜 민감하게)
+  };
+}
+
+function showSummary() {
+  const c=wData.center, l=wData.left||c, r=wData.right||c;
+  const td=thresholds;
+
+  document.getElementById('wicon').textContent='✅';
+  document.getElementById('wtitle').textContent='측정 완료!';
+  document.getElementById('wdesc').textContent=
+    `내 작업 환경에 맞는 기준이 설정됐어요.\n이 범위를 벗어나면 알려드릴게요.`;
+
+  const sum=document.getElementById('wSummary');
+  sum.style.display='flex';
+  sum.innerHTML=`
+    <div class="srow">
+      <div class="srow-label">좌우 시선 범위</div>
+      <div class="srow-bar-wrap">
+        <div class="srow-bar" style="
+          left:${((td.yawMin+0.5)/1*100).toFixed(0)}%;
+          width:${((td.yawMax-td.yawMin)/1*100).toFixed(0)}%;"></div>
+      </div>
+      <div class="srow-val">왼쪽 ${Math.abs(l.noseRelX-c.noseRelX).toFixed(2)} ← 정면 → 오른쪽 ${Math.abs(r.noseRelX-c.noseRelX).toFixed(2)} (정규화)</div>
+    </div>
+    <div class="srow">
+      <div class="srow-label">고개 기울기 허용 범위</div>
+      <div class="srow-bar-wrap">
+        <div class="srow-bar" style="left:30%;width:${Math.min(td.maxRoll*2,40)}%;"></div>
+      </div>
+      <div class="srow-val">±${td.maxRoll.toFixed(1)}° 까지 허용</div>
+    </div>
+  `;
+
+  document.getElementById('wCaptureBtn').style.display='none';
+  document.getElementById('wResult').style.display='none';
+  document.getElementById('wNextBtn').style.display='block';
+  document.getElementById('wNextBtn').textContent='🚀 모니터링 시작';
+  setDots(4); // 모두 완료
+}
+
+document.getElementById('wNextBtn').addEventListener('click', ()=>{
+  if(wStep===STEPS.length-1||document.getElementById('wNextBtn').textContent.includes('모니터링')){
+    if(thresholds){
+      document.getElementById('wizard').classList.add('hidden');
+      document.getElementById('calibStatus').textContent='✅ 개인화 기준값 적용 중. PiP 버튼으로 백그라운드 실행 가능.';
+      const btn=document.getElementById('btnRecalib');
+      btn.textContent='⚙️ 환경 측정 다시 하기';
+    }
+  }
+}, {once:false});
+
+// '다시 하기' 는 wNextBtn의 이벤트와 따로 처리
+document.getElementById('btnRecalib').addEventListener('click', ()=>{
+  wData={}; thresholds=null;
+  document.getElementById('wizard').classList.remove('hidden');
+  loadStep(0);
+});
+
+// ════════════════════════════════════════════════
+// 모니터링
+// ════════════════════════════════════════════════
+let badStart=null, alertShown=false, alertDismissed=false;
+const ALERT_SEC=10, CIRCUM=170;
+
+function setCard(cid,bid,barid,vid, isBad, pct, label){
+  document.getElementById(cid).className='mc '+(isBad?'bad':'good');
+  const b=document.getElementById(bid); b.className='mb '+(isBad?'bad':'ok');
+  b.textContent=isBad?'⚠ 주의':'✓ 양호';
+  const bar=document.getElementById(barid);
+  bar.style.width=Math.min(pct,100)+'%';
+  bar.style.background=isBad?'linear-gradient(90deg,#ff6b6b,#ff3333)':'linear-gradient(90deg,#4d96ff,#6bcb77)';
+  document.getElementById(vid).textContent=label;
+}
+
+function updateRing(sec){
+  const pct=Math.min(sec/ALERT_SEC,1);
+  const c=document.getElementById('btc');
+  c.style.strokeDashoffset=CIRCUM*(1-pct);
+  c.style.stroke=pct>.7?'#ff6b6b':pct>.4?'#ffd93d':'#4d96ff';
+  document.getElementById('btv').textContent=Math.floor(sec)+'s';
+  document.getElementById('bts').textContent=
+    sec===0?'자세가 좋아요! 👍':sec>=ALERT_SEC?'⚠️ 경고!':ALERT_SEC-Math.floor(sec)+'초 후 경고';
+}
+
+function playBeep(){
+  try{
+    const ac=new AudioContext(),o=ac.createOscillator(),g=ac.createGain();
+    o.connect(g);g.connect(ac.destination);
+    o.frequency.setValueAtTime(880,ac.currentTime);
+    o.frequency.setValueAtTime(660,ac.currentTime+.25);
+    g.gain.setValueAtTime(.25,ac.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+.7);
+    o.start();o.stop(ac.currentTime+.7);
+  }catch{}
+}
+
+function sendNotif(issues){
+  if(Notification.permission!=='granted') return;
+  const msgs=[];
+  if(issues.neck) msgs.push('거북목');
+  if(issues.tilt) msgs.push('고개 기울기');
+  if(issues.shoulder) msgs.push('어깨 비대칭');
+  new Notification('⚠️ Neck Guard',{body:`${msgs.join(', ')} 문제가 지속됐어요. 스트레칭하세요! 💪`});
+}
+
+function showAlert(issues){
+  if(alertShown) return;
+  alertShown=true;
+  playBeep(); sendNotif(issues);
+  document.getElementById('alertOverlay').classList.add('active');
+  document.title='⚠️ 자세 교정 필요 — Neck Guard';
+}
+
+document.getElementById('btnDismiss').addEventListener('click',()=>{
+  document.getElementById('alertOverlay').classList.remove('active');
+  alertShown=false; alertDismissed=true; badStart=null;
+  document.title='✅ Neck Guard';
+  setTimeout(()=>{ alertDismissed=false; },5000);
+});
+
+function onResults(results){
+  ctx.clearRect(0,0,camCanvas.width,camCanvas.height);
+  liveLms=results.poseLandmarks??null;
+  const st=document.getElementById('camStatus');
+
+  if(!liveLms){
+    st.textContent='사람이 감지되지 않아요 — 카메라 앞에 앉아주세요';
+    st.style.borderLeftColor='#ff6b6b';
+    updateRing(0); return;
+  }
+
+  const isWizardOpen=!document.getElementById('wizard').classList.contains('hidden');
+  drawSkeleton(liveLms, isWizardOpen?'rgba(255,255,255,.4)':'rgba(77,150,255,.8)');
+
+  if(isWizardOpen||!thresholds){
+    st.textContent='측정 마법사를 완료해주세요';
+    st.style.borderLeftColor='#ffd93d'; return;
+  }
+
+  const m=getMetrics(liveLms);
+  if(!m) return;
+
+  const td=thresholds;
+  const neckDrop=(td.refNeckRatio-m.neckRatio)/td.refNeckRatio;
+  const isNeckBad=neckDrop>td.neckDropLimit;
+
+  const tiltDiff=Math.abs(m.headTilt-td.refHeadTilt);
+  const isTiltBad=tiltDiff>td.maxRoll;
+
+  const shoDiff=Math.abs(m.shoulderTilt-td.refShoulderTilt);
+  const isShoBad=shoDiff>td.maxShoulderTilt;
+
+  // 시선이 허용 범위 안에 있으면 고개 기울기는 무시 (모니터 보는 것)
+  const yawOk=m.noseRelX>=td.yawMin&&m.noseRelX<=td.yawMax;
+  const effectiveTiltBad=isTiltBad&&!yawOk;
+
+  setCard('cNeck','bNeck','barNeck','vNeck',isNeckBad,Math.min(neckDrop*400,100),
+    isNeckBad?`머리가 앞으로 ${(neckDrop*100).toFixed(0)}% 쏠림`:'정상 범위');
+  setCard('cTilt','bTilt','barTilt','vTilt',effectiveTiltBad,Math.min(tiltDiff/td.maxRoll*80,100),
+    `기준 대비 ${tiltDiff.toFixed(1)}° (허용 ±${td.maxRoll.toFixed(0)}°)`);
+  setCard('cShoulder','bShoulder','barShoulder','vShoulder',isShoBad,Math.min(shoDiff/td.maxShoulderTilt*80,100),
+    `기준 대비 ${shoDiff.toFixed(1)}° 비대칭`);
+
+  const anyBad=isNeckBad||effectiveTiltBad||isShoBad;
+  if(anyBad&&!alertDismissed){
+    if(!badStart) badStart=performance.now();
+    const elapsed=(performance.now()-badStart)/1000;
+    updateRing(elapsed);
+    if(elapsed>=ALERT_SEC&&!alertShown) showAlert({neck:isNeckBad,tilt:effectiveTiltBad,shoulder:isShoBad});
+  } else {
+    badStart=null; alertShown=false; updateRing(0);
+    document.title='✅ Neck Guard';
+  }
+
+  if(anyBad){ st.textContent='⚠️ 자세를 교정해주세요'; st.style.borderLeftColor='#ff6b6b'; }
+  else       { st.textContent='✅ 바른 자세입니다 👍';  st.style.borderLeftColor='#6bcb77'; }
+}
+
+// ── PiP ──────────────────────────────────────────────
+document.getElementById('btnPiP').addEventListener('click',async()=>{
+  try{
+    if(document.pictureInPictureElement){
+      await document.exitPictureInPicture();
+      document.getElementById('pipBanner').style.display='none';
+      document.getElementById('btnPiP').textContent='📺 Picture-in-Picture 시작';
+    } else {
+      await camVideo.requestPictureInPicture();
+      document.getElementById('pipBanner').style.display='block';
+      document.getElementById('btnPiP').textContent='📺 PiP 종료';
+    }
+  }catch(e){alert('Chrome 브라우저를 사용해주세요.');}
+});
+camVideo.addEventListener('leavepictureinpicture',()=>{
+  document.getElementById('pipBanner').style.display='none';
+  document.getElementById('btnPiP').textContent='📺 Picture-in-Picture 시작';
+});
+
+// ── 시스템 알림 ──────────────────────────────────────
+document.getElementById('btnNotif').addEventListener('click',async()=>{
+  const p=await Notification.requestPermission();
+  const b=document.getElementById('btnNotif');
+  if(p==='granted'){ b.textContent='✅ 알림 허용됨'; b.className='btn btn-green'; }
+  else { b.textContent='❌ 알림 거부됨'; }
+});
+
+// ── 인터벌 셀렉터 ────────────────────────────────────
+let poseInterval=1500, poseBusy=false;
+document.querySelectorAll('.ivb').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.ivb').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    poseInterval=parseInt(btn.dataset.ms);
+    const dot=document.getElementById('rdot'), lbl=document.getElementById('rlabel');
+    const map={500:['#ff6b6b','고성능 모드 — 0.5초'],1500:['#ffd93d','절약 모드 — 1.5초'],3000:['#6bcb77','저전력 — 3초'],5000:['#4d96ff','배터리 최적 — 5초']};
+    const v=map[poseInterval]||map[1500];
+    dot.style.background=v[0]; lbl.textContent=v[1]+'마다 분석';
+  });
+});
+
+// ── MediaPipe 초기화 ─────────────────────────────────
+const pose=new Pose({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`});
+pose.setOptions({modelComplexity:0,smoothLandmarks:true,enableSegmentation:false,minDetectionConfidence:0.5,minTrackingConfidence:0.5});
+pose.onResults(onResults);
+
+navigator.mediaDevices.getUserMedia({video:{width:640,height:360}})
+  .then(stream=>{
+    camVideo.srcObject=stream;
+    document.getElementById('camStatus').textContent='마법사를 완료해주세요';
+    camVideo.addEventListener('loadeddata',()=>{
+      resize();
+      let lastSent=0;
+      function loop(){
+        const now=performance.now();
+        if(now-lastSent>=poseInterval&&!poseBusy&&camVideo.readyState>=2){
+          lastSent=now; poseBusy=true;
+          pose.send({image:camVideo}).finally(()=>{poseBusy=false;});
+        }
+        requestAnimationFrame(loop);
+      }
+      loop();
+    });
+  })
+  .catch(err=>{document.getElementById('camStatus').textContent='카메라 오류: '+err.message;});
+
+// ── 마법사 시작 ───────────────────────────────────────
+loadStep(0);
+</script>
+</body>
+</html>
