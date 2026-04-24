@@ -149,6 +149,7 @@
   <script type="module">
     import * as THREE from 'three';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
     // ═══════════════════════════════════════════════════
     // Three.js 초기화
@@ -237,13 +238,16 @@
       attack_r:     'assets/right_jab.glb',
       get_hit_body: 'assets/hit_reaction.glb',
       get_hit_face: 'assets/face_reaction.glb',
-      enemy_defeat: 'Meshy_AI_복서_biped/Shot_and_Slow_Fall_Backward.glb',
+      enemy_defeat: 'assets/Shot_and_Slow_Fall_Backward.glb',
     };
 
     let baseMixer = null;
     const actions = {};
     let extraLoaded = 0;
+    const dracoLoader = new DRACOLoader();
+    dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/');
     const loader = new GLTFLoader();
+    loader.setDRACOLoader(dracoLoader);
 
     // 캐릭터 bone 탐색
     let headBone      = null;
@@ -266,7 +270,7 @@
       });
     }
 
-    loader.load('Meshy_AI_복서_biped/Prep_Straight_Punch.glb', (gltf) => {
+    loader.load('assets/Prep_Straight_Punch.glb', (gltf) => {
       gltf.scene.scale.setScalar(2.2);
       gltf.scene.position.set(-1.5, -1.5, 0);
       gltf.scene.rotation.y = 2.0; // 오른쪽(사용자 방향) 바라보기
