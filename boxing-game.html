@@ -103,6 +103,101 @@
 
     /* hidden video for mediapipe */
     #video { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+    /* ── Tutorial Modal ── */
+    #tutorialModal {
+      position: absolute; inset: 0; z-index: 60;
+      background: rgba(0,0,0,0.85);
+      backdrop-filter: blur(14px);
+      display: flex; align-items: center; justify-content: center;
+      color: white;
+    }
+    #tutorialModal.hidden { display: none; }
+
+    .tut-card {
+      display: flex; flex-direction: column; align-items: center;
+      text-align: center; width: 560px;
+    }
+
+    .tut-badge {
+      font-size: 22px; font-weight: 800;
+      letter-spacing: -0.01em;
+      color: rgba(255,255,255,0.9);
+      margin-bottom: 52px;
+    }
+
+    .tut-slides { width: 100%; }
+    .tut-slide { display: none; flex-direction: column; align-items: center; }
+    .tut-slide.active { display: flex; }
+
+    .tut-icon-wrap {
+      width: 160px; height: 160px; border-radius: 50%;
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.1);
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 40px;
+    }
+    .tut-icon-wrap svg { width: 76px; height: 76px; color: white; }
+
+    .tut-step-label {
+      font-size: 16px; font-weight: 700;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      color: rgba(255,255,255,0.4);
+      margin-bottom: 12px;
+    }
+
+    .tut-slide-title {
+      font-size: 36px; font-weight: 800;
+      letter-spacing: -0.03em; margin-bottom: 18px;
+    }
+
+    .tut-slide-desc {
+      font-size: 20px; color: rgba(255,255,255,0.55);
+      line-height: 1.7; font-weight: 400; min-height: 100px;
+    }
+
+    .tut-nav {
+      display: flex; align-items: center; gap: 32px;
+      margin-top: 56px; margin-bottom: 28px;
+    }
+
+    .tut-arrow {
+      width: 52px; height: 52px; border-radius: 50%;
+      border: 1.5px solid rgba(255,255,255,0.18);
+      background: none; color: white; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: border-color 0.18s, background 0.18s;
+    }
+    .tut-arrow:hover:not(:disabled) {
+      border-color: rgba(255,255,255,0.6);
+      background: rgba(255,255,255,0.08);
+    }
+    .tut-arrow:disabled { opacity: 0.2; cursor: default; }
+    .tut-arrow svg {
+      width: 18px; height: 18px; fill: none; stroke: currentColor;
+      stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    .tut-dots { display: flex; gap: 8px; align-items: center; }
+    .tut-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: rgba(255,255,255,0.2);
+      transition: background 0.2s, width 0.2s, border-radius 0.2s;
+    }
+    .tut-dot.active { background: white; width: 26px; border-radius: 4px; }
+
+    #tutorialStartBtn {
+      display: none;
+      background: linear-gradient(135deg, #ff6b6b, #c77dff);
+      border: none; color: white;
+      font-size: 17px; font-weight: 800;
+      letter-spacing: 0.04em;
+      padding: 16px 60px; border-radius: 50px; cursor: pointer;
+      transition: opacity 0.15s, transform 0.15s;
+      pointer-events: all;
+    }
+    #tutorialStartBtn.visible { display: block; }
+    #tutorialStartBtn:hover { opacity: 0.85; transform: scale(1.03); }
   </style>
 </head>
 <body>
@@ -124,6 +219,101 @@
       <div class="hp-bar-bg"><div class="hp-bar" id="enemyHpBar"></div></div>
     </div>
     <div id="statusMsg">로딩 중...</div>
+  </div>
+
+  <div id="tutorialModal" class="hidden">
+    <div class="tut-card">
+
+      <p class="tut-badge">게임 방법</p>
+
+      <div class="tut-slides">
+
+        <!-- Step 1: Distance -->
+        <div class="tut-slide active">
+          <div class="tut-icon-wrap">
+            <svg viewBox="0 0 56 56" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="28" cy="14" r="7" stroke-width="2.5"/>
+              <path d="M16 44 Q16 28 28 28 Q40 28 40 44" stroke-width="2.5"/>
+              <line x1="3" y1="30" x2="12" y2="30" stroke-width="2"/>
+              <polyline points="6,27 3,30 6,33" stroke-width="2"/>
+              <line x1="53" y1="30" x2="44" y2="30" stroke-width="2"/>
+              <polyline points="50,27 53,30 50,33" stroke-width="2"/>
+            </svg>
+          </div>
+          <p class="tut-step-label">Step 1 · 준비</p>
+          <h3 class="tut-slide-title">카메라와의 거리</h3>
+          <p class="tut-slide-desc">상반신이 모두 보이도록<br>카메라와 적당한 거리를 유지하세요</p>
+        </div>
+
+        <!-- Step 2: Punch -->
+        <div class="tut-slide">
+          <div class="tut-icon-wrap">
+            <svg viewBox="0 0 56 56" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="7" cy="28" r="4" stroke-width="2.5"/>
+              <line x1="11" y1="28" x2="36" y2="28" stroke-width="5"/>
+              <rect x="36" y="22" width="12" height="12" rx="3" stroke-width="2.5"/>
+              <line x1="50" y1="28" x2="54" y2="28" stroke-width="2"/>
+              <polyline points="51,25 54,28 51,31" stroke-width="2"/>
+            </svg>
+          </div>
+          <p class="tut-step-label">Step 2 · 공격</p>
+          <h3 class="tut-slide-title">펀치</h3>
+          <p class="tut-slide-desc">화면 오른쪽에서 캐릭터를 향해 주먹을 뻗으세요<br>팔의 각도를 보고 올바른 펀치를 인식합니다</p>
+        </div>
+
+        <!-- Step 3: Guard -->
+        <div class="tut-slide">
+          <div class="tut-icon-wrap">
+            <svg viewBox="0 0 56 56" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="28" y1="50" x2="28" y2="32" stroke-width="2.5"/>
+              <polyline points="28,40 12,46 10,30" stroke-width="3.5"/>
+              <circle cx="10" cy="23" r="6" stroke-width="2.5"/>
+              <polyline points="28,40 44,46 46,30" stroke-width="3.5"/>
+              <circle cx="46" cy="23" r="6" stroke-width="2.5"/>
+            </svg>
+          </div>
+          <p class="tut-step-label">Step 3 · 방어</p>
+          <h3 class="tut-slide-title">가드</h3>
+          <p class="tut-slide-desc">양팔을 모두 구부리면<br>적의 공격을 막을 수 있어요</p>
+        </div>
+
+        <!-- Step 4: Dodge -->
+        <div class="tut-slide">
+          <div class="tut-icon-wrap">
+            <svg viewBox="0 0 56 56" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="24" width="14" height="10" rx="3" stroke-width="2.5"/>
+              <line x1="16" y1="29" x2="26" y2="29" stroke-width="2"/>
+              <polyline points="23,26 26,29 23,32" stroke-width="2"/>
+              <circle cx="44" cy="15" r="8" stroke-width="2.5"/>
+              <path d="M40 36 Q40 27 41 23" stroke-width="2" stroke-dasharray="3,2"/>
+              <polyline points="38,25 41,22 44,25" stroke-width="2"/>
+            </svg>
+          </div>
+          <p class="tut-step-label">Step 4 · 회피</p>
+          <h3 class="tut-slide-title">피하세요</h3>
+          <p class="tut-slide-desc">캐릭터의 주먹이 내 머리에<br>닿지 않도록 피하세요</p>
+        </div>
+
+      </div>
+
+      <div class="tut-nav">
+        <button class="tut-arrow" id="tutPrev" disabled>
+          <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <div class="tut-dots">
+          <span class="tut-dot active"></span>
+          <span class="tut-dot"></span>
+          <span class="tut-dot"></span>
+          <span class="tut-dot"></span>
+        </div>
+        <button class="tut-arrow" id="tutNext">
+          <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+      </div>
+
+      <button id="tutorialStartBtn">게임 시작</button>
+
+    </div>
   </div>
 
   <div id="overlay">
@@ -365,8 +555,31 @@
       );
       showIdle();
       document.getElementById('overlay').classList.add('hidden');
-      startCalibration();
+      document.getElementById('tutorialModal').classList.remove('hidden');
     }
+
+    const tutSlides = document.querySelectorAll('.tut-slide');
+    const tutDots   = document.querySelectorAll('.tut-dot');
+    const tutPrev   = document.getElementById('tutPrev');
+    const tutNext   = document.getElementById('tutNext');
+    const tutStart  = document.getElementById('tutorialStartBtn');
+    let tutStep = 0;
+
+    function showTutStep(n) {
+      tutSlides.forEach((s, i) => s.classList.toggle('active', i === n));
+      tutDots.forEach((d, i)   => d.classList.toggle('active',  i === n));
+      tutPrev.disabled = n === 0;
+      tutNext.disabled = n === tutSlides.length - 1;
+      tutStart.classList.toggle('visible', n === tutSlides.length - 1);
+      tutStep = n;
+    }
+
+    tutPrev.addEventListener('click', () => showTutStep(tutStep - 1));
+    tutNext.addEventListener('click', () => showTutStep(tutStep + 1));
+    tutStart.addEventListener('click', () => {
+      document.getElementById('tutorialModal').classList.add('hidden');
+      startCalibration();
+    });
 
     // ═══════════════════════════════════════════════════
     // 웹캠 미러 + MediaPipe Pose
@@ -717,27 +930,14 @@
     // ═══════════════════════════════════════════════════
     const ATTACK_MIN_MS      = 2000;
     const ATTACK_MAX_MS      = 4000;
-    const ENEMY_HIT_R_3D     = 0.55;  // 3D 월드 공간 판정 반경 (world units)
-    const ENEMY_FACE_DEPTH   = 0.6;   // 카메라에서 얼굴까지 추정 거리 (world units)
     const ENEMY_HIT_COOLDOWN = 800;
     let enemyAttackTimer  = null;
     let activeAttackHand  = null;
     let lastEnemyHit      = 0;
 
-    const _handWorldPos  = new THREE.Vector3();
-    const _faceWorldPos  = new THREE.Vector3();
-    const _faceRayDir    = new THREE.Vector3();
-    const _faceNDC       = new THREE.Vector3();
+    const _handWorldPos = new THREE.Vector3();
 
-    // MediaPipe 코 좌표 → 3D 월드 위치 (카메라 레이 투영)
-    function calcFaceWorldPos(nose) {
-      // NDC 변환 (x 미러)
-      _faceNDC.set((1 - nose.x) * 2 - 1, 1 - nose.y * 2, -1).unproject(camera);
-      _faceRayDir.copy(_faceNDC).sub(camera.position).normalize();
-      _faceWorldPos.copy(camera.position).addScaledVector(_faceRayDir, ENEMY_FACE_DEPTH);
-    }
-
-    // 매 포즈 프레임 호출 — 3D 공간에서 손 bone ↔ 얼굴 거리 비교
+    // 매 포즈 프레임 호출 — 2D 스크린 공간에서 손 bone ↔ 얼굴 거리 비교
     function checkEnemyFistHit(lms) {
       if (!activeAttackHand || !lms) return;
       const now = Date.now();
@@ -745,13 +945,26 @@
 
       const nose = lms[0];
       if (!nose || nose.visibility < 0.4) return;
-      calcFaceWorldPos(nose);
+
+      // 플레이어 얼굴 스크린 좌표
+      const facePos = lmToScreen(nose);
+
+      // 어깨 너비 기반 얼굴 반경 계산
+      const lShoulder = lms[11], rShoulder = lms[12];
+      let faceR = bgCanvas.width * 0.08;
+      if (lShoulder && rShoulder && lShoulder.visibility > 0.4 && rShoulder.visibility > 0.4) {
+        const sw = Math.abs(lmToScreen(lShoulder).x - lmToScreen(rShoulder).x);
+        faceR = sw * 0.38;
+      }
 
       for (const bone of [leftHandBone, rightHandBone]) {
         if (!bone) continue;
         bone.getWorldPosition(_handWorldPos);
+        const proj = _handWorldPos.clone().project(camera);
+        const hx = (proj.x + 1) / 2 * bgCanvas.width;
+        const hy = (1 - proj.y) / 2 * bgCanvas.height;
 
-        if (_handWorldPos.distanceTo(_faceWorldPos) > ENEMY_HIT_R_3D) continue;
+        if (Math.hypot(hx - facePos.x, hy - facePos.y) > faceR) continue;
 
         // 맞음
         lastEnemyHit = now;
